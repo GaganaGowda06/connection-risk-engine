@@ -1,0 +1,11 @@
+routes:
+  - id: bhm-eus
+    origin: BHM
+    destination: EUS
+  - id: bhm-man
+    origin: BHM
+    destination: MAN
+  - id: ast-eus-via-bhm
+    origin: AST
+    destination: EUS
+    via_hub: BHM
