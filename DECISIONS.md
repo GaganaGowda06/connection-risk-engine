@@ -7,3 +7,4 @@
 - 2026-10-14 Interval method: LightGBM quantile models with conformalized quantile regression; fallback empirical residual quantiles per route and hour.
 - 2026-10-14 gitleaks via system binary plus full-history CI scan.
 - 2026-10-14 Repo public on GitHub; commits use the noreply email.
+- 2026-10-14 CI runners pinned to ubuntu-24.04 so the 2026-10-19 ubuntu-latest switch to Ubuntu 26 cannot break CI unannounced.
