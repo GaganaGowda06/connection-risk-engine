@@ -73,6 +73,7 @@ def _ingest_hsp(args: argparse.Namespace) -> int:
             manifest,
             raw_root=raw_root,
             interim_root=interim,
+            newest_first=args.newest_first,
         )
     except HspHttpError as exc:
         log.error("ingest_aborted", error=str(exc))
