@@ -15,6 +15,9 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Train: `uv run rail-risk train` (smoke below `min_train_days`, logs to mlruns/mlflow.db, MLflow sqlite backend)
 - Connection: `uv run rail-risk connection --inbound-rid RID [--outbound-dep HH:MM] --date D --fare 50 --ticket single` (no outbound: first feasible)
 - Backtest: `uv run rail-risk backtest-connections` (ast-bhm inbound against bhm-eus outbound, writes reports/connection_backtest.json)
+- Serve: `uv run rail-risk serve` (localhost:8000; loads model alias `champion`, set with `rail-risk promote --run-id RUN`)
+  - `curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610158700587","fare":50,"ticket":"single"}'`
+  - `curl -s localhost:8000/health`
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 

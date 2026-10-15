@@ -279,6 +279,58 @@ def resolve_route(stops: pd.DataFrame, routes: list[Any], prefer: str | None = N
 # serving features: the training code on a stop table
 
 
+def _spark_stop_schema():
+    from pyspark.sql import types as T
+
+    ts = T.TimestampType()
+    return T.StructType(
+        [
+            T.StructField("rid", T.StringType()),
+            T.StructField("service_date", T.DateType()),
+            T.StructField("toc_code", T.StringType()),
+            T.StructField("seq", T.LongType()),
+            T.StructField("location", T.StringType()),
+            T.StructField("sched_arr", ts),
+            T.StructField("sched_dep", ts),
+            T.StructField("actual_arr", ts),
+            T.StructField("actual_dep", ts),
+            T.StructField("late_canc_reason", T.StringType()),
+            T.StructField("candidate_cancelled", T.BooleanType()),
+        ]
+    )
+
+
+_SPARK_STOP_SCHEMA = None
+
+
+def _stop_tuples(stops: pd.DataFrame) -> list[tuple]:
+    """Rows as plain Python values in the stop schema: no NaT, no pd.NA."""
+
+    def py(v: Any) -> Any:
+        if v is None or v is pd.NaT or (not isinstance(v, (str, bool)) and pd.isna(v)):
+            return None
+        return v
+
+    out = []
+    for r in stops.itertuples(index=False):
+        day = pd.Timestamp(r.date_of_service).date()
+        times = [None if pd.isna(t) else pd.Timestamp(t).to_pydatetime() for t in (
+            r.sched_arr, r.sched_dep, r.actual_arr, r.actual_dep)]  # fmt: skip
+        out.append(
+            (
+                str(r.rid),
+                day,
+                py(r.toc_code),
+                int(r.seq),
+                str(r.location),
+                *times,
+                py(r.late_canc_reason),
+                bool(r.candidate_cancelled),
+            )  # fmt: skip
+        )
+    return out
+
+
 class FeatureService:
     """Builds snapshot features with the training `build_snapshots` function.
 
@@ -318,9 +370,7 @@ class FeatureService:
         self, services: dict[str, tuple[pd.DataFrame, str, int]]
     ) -> dict[str, dict[str, Any]]:
         """Features for {rid: (stop table, route id, minutes before scheduled arrival)}."""
-        import pyarrow as pa
-
-        from rail_risk.features.snapshots import STOPS_SCHEMA, build_snapshots
+        from rail_risk.features.snapshots import build_snapshots
 
         if not services:
             return {}
@@ -332,19 +382,10 @@ class FeatureService:
             tables.append(t)
             pairs.append((rid, route_id))
         stops = pd.concat(tables, ignore_index=True)
-        arrow = pa.Table.from_pandas(
-            stops.assign(
-                date_of_service=pd.to_datetime(stops["date_of_service"]).dt.date,
-                seq=stops["seq"].astype("int64"),
-                late_canc_reason=stops["late_canc_reason"].astype("string"),
-                toc_code=stops["toc_code"].astype("string"),
-            ),
-            schema=STOPS_SCHEMA,
-            preserve_index=False,
-        )
-        sdf = self.spark.createDataFrame(arrow.to_pandas()).withColumnRenamed(
-            "date_of_service", "service_date"
-        )
+        global _SPARK_STOP_SCHEMA
+        if _SPARK_STOP_SCHEMA is None:
+            _SPARK_STOP_SCHEMA = _spark_stop_schema()
+        sdf = self.spark.createDataFrame(_stop_tuples(stops), _SPARK_STOP_SCHEMA)
         rid_routes = self.spark.createDataFrame(pairs, "rid string, route_id string")
         horizons = tuple(sorted({int(m) for _, _, m in services.values()}))
         snap = build_snapshots(
@@ -361,3 +402,100 @@ class FeatureService:
     def features(self, stop_table: pd.DataFrame, route_id: str, minutes: int) -> dict[str, Any]:
         rid = str(stop_table["rid"].iloc[0])
         return self.batch({rid: (stop_table, route_id, minutes)}).get(rid, {})
+
+
+# data checks between the two feeds
+
+LATENESS_FEATURES = ("last_stop_lateness_min", "lateness_change_last_2")
+EXTRA_PARITY_FEATURES = ("n_stops_passed", "stops_remaining", "minutes_since_last_stop")
+
+
+def _close(a: Any, b: Any, tol: float) -> bool:
+    if (a is None or pd.isna(a)) and (b is None or pd.isna(b)):
+        return True
+    if a is None or b is None or pd.isna(a) or pd.isna(b):
+        return False
+    return abs(float(a) - float(b)) <= tol
+
+
+def source_parity(
+    features: FeatureService,
+    pairs: dict[str, tuple[pd.DataFrame, pd.DataFrame]],
+    route_id: str,
+    minutes: int = 60,
+    tol: float = 1.0,
+) -> dict[str, Any]:
+    """Features for the same services from HSP and from Darwin, through the same function.
+
+    `pairs` maps rid to (HSP stop table, Darwin stop table). Both are given to `build_snapshots`
+    at `minutes` before the scheduled arrival. A service agrees when every lateness feature is
+    within `tol` minutes (or null in both). Returns the share and the per-feature shares.
+    """
+    hsp = features.batch({rid: (a, route_id, minutes) for rid, (a, _) in pairs.items()})
+    darwin = features.batch({rid: (b, route_id, minutes) for rid, (_, b) in pairs.items()})
+    rids = sorted(set(hsp) & set(darwin))
+    per: dict[str, list[bool]] = {c: [] for c in (*LATENESS_FEATURES, *EXTRA_PARITY_FEATURES)}
+    agree = []
+    detail = []
+    for rid in rids:
+        flags = {c: _close(hsp[rid].get(c), darwin[rid].get(c), tol) for c in per}
+        for c, ok in flags.items():
+            per[c].append(ok)
+        ok_all = all(flags[c] for c in LATENESS_FEATURES)
+        agree.append(ok_all)
+        if not ok_all:
+            detail.append(
+                {
+                    "rid": rid,
+                    **{f"hsp_{c}": hsp[rid].get(c) for c in LATENESS_FEATURES},
+                    **{f"darwin_{c}": darwin[rid].get(c) for c in LATENESS_FEATURES},
+                }
+            )
+    n = len(rids)
+    return {
+        "services": n,
+        "agree_share": (sum(agree) / n) if n else None,
+        "per_feature_share": {c: (sum(v) / n if n else None) for c, v in per.items()},
+        "disagreements": detail,
+    }
+
+
+def actual_time_agreement(
+    pairs: dict[str, tuple[pd.DataFrame, pd.DataFrame]], tol_seconds: float = 60.0
+) -> dict[str, Any]:
+    """How often the two feeds give the same actual time for the same planned stop event.
+
+    Stops are matched on the planned (scheduled) time of the arrival or departure, because
+    Darwin uses TIPLOCs and HSP uses CRS codes.
+    """
+    compared = exact = within = only_hsp = only_darwin = 0
+    for _, (h, d) in pairs.items():
+        for kind in ("arr", "dep"):
+            sched, actual = f"sched_{kind}", f"actual_{kind}"
+            hh = h[h[sched].notna()].set_index(sched)[actual]
+            dd = d[d[sched].notna()].set_index(sched)[actual]
+            for key, a in hh.items():
+                if key not in dd.index:
+                    continue
+                b = dd.loc[key]
+                b = b.iloc[-1] if isinstance(b, pd.Series) else b
+                if pd.isna(a) and pd.isna(b):
+                    continue
+                if pd.isna(a):
+                    only_darwin += 1
+                    continue
+                if pd.isna(b):
+                    only_hsp += 1
+                    continue
+                compared += 1
+                gap = abs((pd.Timestamp(a) - pd.Timestamp(b)).total_seconds())
+                exact += gap == 0
+                within += gap <= tol_seconds
+    return {
+        "compared_actuals": compared,
+        "identical_share": (exact / compared) if compared else None,
+        "within_tolerance_share": (within / compared) if compared else None,
+        "tolerance_seconds": tol_seconds,
+        "actual_in_hsp_only": only_hsp,
+        "actual_in_darwin_only": only_darwin,
+    }
