@@ -1,0 +1,129 @@
+{
+  "serviceAttributesDetails": {
+    "date_of_service": "2026-10-01",
+    "toc_code": "LM",
+    "rid": "202610018980803",
+    "locations": [
+      {
+        "location": "BHM",
+        "gbtt_ptd": "0706",
+        "gbtt_pta": "",
+        "actual_td": "0706",
+        "actual_ta": "",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "BHI",
+        "gbtt_ptd": "0716",
+        "gbtt_pta": "0715",
+        "actual_td": "0716",
+        "actual_ta": "0715",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "HIA",
+        "gbtt_ptd": "0720",
+        "gbtt_pta": "0719",
+        "actual_td": "0720",
+        "actual_ta": "0719",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "BKW",
+        "gbtt_ptd": "0724",
+        "gbtt_pta": "0724",
+        "actual_td": "0725",
+        "actual_ta": "0724",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "THL",
+        "gbtt_ptd": "0728",
+        "gbtt_pta": "0728",
+        "actual_td": "0729",
+        "actual_ta": "0728",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "CNL",
+        "gbtt_ptd": "0731",
+        "gbtt_pta": "0731",
+        "actual_td": "0733",
+        "actual_ta": "0732",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "COV",
+        "gbtt_ptd": "0735",
+        "gbtt_pta": "0734",
+        "actual_td": "0737",
+        "actual_ta": "0736",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "RUG",
+        "gbtt_ptd": "0746",
+        "gbtt_pta": "0745",
+        "actual_td": "0748",
+        "actual_ta": "0746",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "LBK",
+        "gbtt_ptd": "0756",
+        "gbtt_pta": "0755",
+        "actual_td": "0759",
+        "actual_ta": "0758",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "NMP",
+        "gbtt_ptd": "0818",
+        "gbtt_pta": "0807",
+        "actual_td": "0818",
+        "actual_ta": "0811",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "WOL",
+        "gbtt_ptd": "0830",
+        "gbtt_pta": "0829",
+        "actual_td": "0832",
+        "actual_ta": "0830",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "MKC",
+        "gbtt_ptd": "0835",
+        "gbtt_pta": "0834",
+        "actual_td": "0837",
+        "actual_ta": "0835",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "BLY",
+        "gbtt_ptd": "0840",
+        "gbtt_pta": "0839",
+        "actual_td": "0842",
+        "actual_ta": "0838",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "LBZ",
+        "gbtt_ptd": "0847",
+        "gbtt_pta": "0847",
+        "actual_td": "0849",
+        "actual_ta": "0847",
+        "late_canc_reason": ""
+      },
+      {
+        "location": "EUS",
+        "gbtt_ptd": "",
+        "gbtt_pta": "0920",
+        "actual_td": "",
+        "actual_ta": "0926",
+        "late_canc_reason": ""
+      }
+    ]
+  }
+}

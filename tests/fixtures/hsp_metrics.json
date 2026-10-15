@@ -1,0 +1,118 @@
+{
+  "header": {
+    "from_location": "BHM",
+    "to_location": "EUS"
+  },
+  "Services": [
+    {
+      "serviceAttributesMetrics": {
+        "origin_location": "BHM",
+        "destination_location": "EUS",
+        "gbtt_ptd": "0706",
+        "gbtt_pta": "0920",
+        "toc_code": "LM",
+        "matched_services": "1",
+        "rids": [
+          "202610018980803"
+        ]
+      },
+      "Metrics": [
+        {
+          "tolerance_value": "0",
+          "num_not_tolerance": "1",
+          "num_tolerance": "0",
+          "percent_tolerance": "0",
+          "global_tolerance": true
+        }
+      ]
+    },
+    {
+      "serviceAttributesMetrics": {
+        "origin_location": "WVH",
+        "destination_location": "EUS",
+        "gbtt_ptd": "0717",
+        "gbtt_pta": "0838",
+        "toc_code": "VT",
+        "matched_services": "1",
+        "rids": [
+          "202610018734054"
+        ]
+      },
+      "Metrics": [
+        {
+          "tolerance_value": "0",
+          "num_not_tolerance": "0",
+          "num_tolerance": "1",
+          "percent_tolerance": "100",
+          "global_tolerance": true
+        }
+      ]
+    },
+    {
+      "serviceAttributesMetrics": {
+        "origin_location": "BHM",
+        "destination_location": "EUS",
+        "gbtt_ptd": "0721",
+        "gbtt_pta": "0852",
+        "toc_code": "VT",
+        "matched_services": "1",
+        "rids": [
+          "202610018734205"
+        ]
+      },
+      "Metrics": [
+        {
+          "tolerance_value": "0",
+          "num_not_tolerance": "0",
+          "num_tolerance": "1",
+          "percent_tolerance": "100",
+          "global_tolerance": true
+        }
+      ]
+    },
+    {
+      "serviceAttributesMetrics": {
+        "origin_location": "BHM",
+        "destination_location": "EUS",
+        "gbtt_ptd": "0736",
+        "gbtt_pta": "0950",
+        "toc_code": "LM",
+        "matched_services": "1",
+        "rids": [
+          "202610018980812"
+        ]
+      },
+      "Metrics": [
+        {
+          "tolerance_value": "0",
+          "num_not_tolerance": "1",
+          "num_tolerance": "0",
+          "percent_tolerance": "0",
+          "global_tolerance": true
+        }
+      ]
+    },
+    {
+      "serviceAttributesMetrics": {
+        "origin_location": "MAN",
+        "destination_location": "EUS",
+        "gbtt_ptd": "0747",
+        "gbtt_pta": "0906",
+        "toc_code": "VT",
+        "matched_services": "1",
+        "rids": [
+          "202610018733950"
+        ]
+      },
+      "Metrics": [
+        {
+          "tolerance_value": "0",
+          "num_not_tolerance": "1",
+          "num_tolerance": "0",
+          "percent_tolerance": "0",
+          "global_tolerance": true
+        }
+      ]
+    }
+  ]
+}
