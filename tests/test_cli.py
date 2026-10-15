@@ -63,3 +63,27 @@ def test_check_bad_log_level(monkeypatch, capsys):
 def test_configure_logging_rejects_unknown_level():
     with pytest.raises(ValueError):
         configure_logging("LOUD")
+
+
+def test_ingest_hsp_passes_newest_first_and_exit_codes(monkeypatch):
+    import rail_risk.ingest.hsp as hsp
+
+    monkeypatch.setenv("RAIL_RDM_HSP_KEY", "k")
+    monkeypatch.setenv("RAIL_DATA_DIR", "data")
+    seen = {}
+
+    def fake_backfill(route, start, end, hours, client, manifest, **kw):
+        seen.update(kw, route=route.id, start=start, end=end, hours=hours)
+        return hsp.Counters(failed_windows=seen.get("fail", 0))
+
+    monkeypatch.setattr(hsp, "backfill", fake_backfill)
+    monkeypatch.setattr(hsp, "Manifest", lambda path: type("M", (), {"close": lambda s: None})())
+    argv = ["ingest-hsp", "--route", "bhm-eus", "--start", "2026-09-01", "--end", "2026-09-30"]
+    assert main([*argv, "--newest-first", "--hours", "07-09"]) == 0
+    assert seen["newest_first"] is True
+    assert list(seen["hours"]) == [7, 8]
+    assert main(argv) == 0
+    assert seen["newest_first"] is False
+    assert (
+        main(["ingest-hsp", "--route", "nope", "--start", "2026-09-01", "--end", "2026-09-02"]) == 1
+    )

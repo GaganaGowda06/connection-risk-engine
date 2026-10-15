@@ -383,3 +383,18 @@ def test_manifest_migrates_route_membership_from_old_rids_table(tmp_path):
     m = Manifest(db)
     assert m.query("SELECT rid, route FROM rid_routes") == [("202610018980803", "bhm-eus")]
     m.close()
+
+
+def test_newest_first_orders_days_descending(tmp_path):
+    days = []
+
+    def handler(request):
+        days.append(json.loads(request.content)["from_date"])
+        return httpx.Response(200, json={"Services": []})
+
+    manifest = Manifest(tmp_path / "m.sqlite")
+    backfill(ROUTE, date(2026, 10, 1), date(2026, 10, 3), range(7, 8), make_client(handler),
+             manifest, raw_root=tmp_path / "raw", interim_root=tmp_path / "i",
+             newest_first=True)  # fmt: skip
+    assert days == ["2026-10-03", "2026-10-02", "2026-10-01"]
+    manifest.close()
