@@ -33,6 +33,7 @@ class SplitConfig:
     resamples: int
     seed: int
     confidence: float
+    routes: tuple[str, ...] = ()  # empty: every route in the snapshots
 
 
 def load_split_config(path: Path) -> SplitConfig:
@@ -46,6 +47,7 @@ def load_split_config(path: Path) -> SplitConfig:
         resamples=int(boot.get("resamples", 1000)),
         seed=int(boot.get("seed", 0)),
         confidence=float(boot.get("confidence", 0.95)),
+        routes=tuple(raw.get("routes", ())),
     )
     if min(cfg.test_days, cfg.validation_days, cfg.gap_days, cfg.windows_per_day) < 1:
         raise ValueError("split sizes and the gap must be at least 1")

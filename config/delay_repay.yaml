@@ -20,11 +20,33 @@ operators:
       - {from_min: 120, to_min: null, single: 1.00, return: 1.00}
   LM:
     name: West Midlands Railway
+    status: verified
+    source_url: https://www.westmidlandsrailway.co.uk/delay-repay
+    checked: 2026-10-15
+    claim_window_days: null
+    measured_at: >-
+      destination arrival against the advertised timetable; a West Midlands Railway delay that
+      causes a missed connection and an arrival 15 or more minutes late qualifies
+    note: >-
+      Daily tickets. The page was read manually by me on 2026-10-15 after an
+      automated fetch got HTTP 403 with a JavaScript security check; the tiers are as transcribed
+      from that reading, not fetched by the code. The claim window is not recorded here.
+    caveat: >-
+      TOC code LM is shared by West Midlands Railway and London Northwestern Railway. These
+      tiers are West Midlands Railway's and say nothing about London Northwestern Railway.
+    tiers:
+      - {from_min: 15, to_min: 30, single: 0.25, return: 0.125}
+      - {from_min: 30, to_min: 60, single: 0.50, return: 0.25}
+      - {from_min: 60, to_min: 120, single: 1.00, return: 0.50}
+      - {from_min: 120, to_min: null, single: 1.00, return: 1.00}
+  LNR:
+    # not a Darwin TOC code: London Northwestern Railway trades under TOC LM, so this entry only
+    # records that its page lists no tiers and that it has not been priced.
+    name: London Northwestern Railway
     status: unverified
     source_url: https://www.westmidlandsrailway.co.uk/delay-repay
     checked: 2026-10-15
     note: >-
-      The page answered HTTP 403 with a JavaScript security check, so no tiers could be read.
-      The LM code also covers London Northwestern Railway services, which run BHM to EUS, and
-      that operator's page was not checked.
+      The page read on 2026-10-15 lists no tiers for London Northwestern Railway, so none are
+      recorded.
     tiers: []

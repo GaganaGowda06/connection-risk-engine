@@ -124,11 +124,21 @@ def test_shipped_rules_match_what_was_read_from_the_operator_page():
         (120, None, 1.0, 1.0),
     ]
     assert str(vt.checked) == "2026-10-15" and vt.source_url.startswith("https://www.avanti")
-    assert shipped.operators["LM"].status == "unverified"
-    with pytest.raises(RepayError):
-        shipped.operator("LM")
+    lm = shipped.operator("LM")
+    assert [(t.from_min, t.to_min, t.single, t.return_) for t in lm.tiers] == [
+        (15, 30, 0.25, 0.125),
+        (30, 60, 0.5, 0.25),
+        (60, 120, 1.0, 0.5),
+        (120, None, 1.0, 1.0),
+    ]
+    assert "London Northwestern" in lm.caveat  # the shared TOC code is flagged on every payout
+    r = expected_repay(P, EDGES, "LM", "single", 10.0, shipped)
+    assert r.caveat == lm.caveat and r.expected_payout > 0
+    assert shipped.operators["LNR"].status == "unverified"
+    with pytest.raises(RepayError, match="unverified"):
+        shipped.operator("LNR")
     raw = yaml.safe_load((ROOT / "delay_repay.yaml").read_text())
-    assert raw["operators"]["LM"]["tiers"] == []
+    assert raw["operators"]["LNR"]["tiers"] == []
 
 
 def test_expected_payout_is_linear_in_fare_and_ordered_by_ticket():
