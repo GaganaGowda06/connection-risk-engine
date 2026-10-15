@@ -1,0 +1,8 @@
+# TIPLOC (Darwin) to CRS (HSP, routes.yaml) for the stations the routes use. Darwin has no
+# station names, so these four were matched by name only (see docs/darwin_schema.md). A stop
+# not listed keeps its TIPLOC as its location, which no route refers to.
+tiplocs:
+  BHAMNWS: BHM
+  EUSTON: EUS
+  ASTON: AST
+  MNCRPIC: MAN

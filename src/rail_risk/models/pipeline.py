@@ -65,6 +65,7 @@ class Fitted:
     bands: BandFit
     grid: dict[str, list[dict[str, Any]]]
     validation_split: bool
+    baseline: Any = None  # HistoricalBaseline fitted on train, the serving fallback
 
 
 def fit_all(
@@ -78,7 +79,7 @@ def fit_all(
     tune, calibrate, halved = validation_halves(valid, cfg["split_validation_min_days"])
     quantile, grid = fit_models(train, tune, calibrate, cfg, columns)
     band_fit = fit_bands(train, tune, calibrate, bands, cfg, columns)
-    return Fitted(quantile, band_fit, grid, halved)
+    return Fitted(quantile, band_fit, grid, halved, HistoricalBaseline(bands).fit(train))
 
 
 def model_predictions(
@@ -379,6 +380,23 @@ def log_to_mlflow(
                     booster.save_model(str(root / f"quantile_{target}_{q}.txt"))
             fitted.bands.booster.save_model(str(root / "bands.txt"))
             (root / "results.json").write_text(json.dumps(result, indent=2, default=str))
+            from rail_risk.models.bundle import ModelBundle, save_bundle
+
+            save_bundle(
+                ModelBundle(
+                    fitted.quantile,
+                    fitted.bands,
+                    fitted.bands.bands,
+                    meta={
+                        "git_commit": git_sha,
+                        "train_start": train_range[0],
+                        "train_end": train_range[1],
+                        "tag": tag,
+                    },
+                ),
+                fitted.baseline,
+                root,
+            )
             mlflow.log_artifacts(tmp, artifact_path="model")
         return run.info.run_id
 

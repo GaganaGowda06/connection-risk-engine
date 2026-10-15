@@ -465,6 +465,30 @@ def _backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    configure_logging(Settings().log_level, Settings().log_json)
+    uvicorn.run(
+        "rail_risk.api.app:app_from_environment", factory=True, host="127.0.0.1",
+        port=args.port, log_level="warning",
+    )  # fmt: skip
+    return 0
+
+
+def _promote(args: argparse.Namespace) -> int:
+    from rail_risk.models.registry import register_champion
+
+    log = get_logger()
+    try:
+        version = register_champion(args.mlruns, args.run_id, alias=args.alias)
+    except (ValueError, OSError) as exc:
+        log.error("promote_failed", error=str(exc))
+        return 1
+    print(f"registered run {args.run_id} as connection-risk version {version}, alias {args.alias}")
+    return 0
+
+
 def _evaluate_baselines(args: argparse.Namespace) -> int:
     from rail_risk.evaluation import (
         complete_days,
@@ -568,6 +592,12 @@ def main(argv: list[str] | None = None) -> int:
     cn.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     cn.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
     cn.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
+    sv = sub.add_parser("serve", help="run the risk API on localhost")
+    sv.add_argument("--port", type=int, default=8000)
+    pr = sub.add_parser("promote", help="register a reportable run and point an alias at it")
+    pr.add_argument("--run-id", required=True)
+    pr.add_argument("--alias", default="champion")
+    pr.add_argument("--mlruns", type=Path, default=Path("mlruns"))
     bt = sub.add_parser("backtest-connections", help="score connection predictions on history")
     bt.add_argument("--window", type=float, default=20.0, help="minutes beyond the minimum time")
     bt.add_argument("--draws", type=int, default=2000)
@@ -590,6 +620,10 @@ def main(argv: list[str] | None = None) -> int:
         return _build_features(args)
     if args.command == "train":
         return _train(args)
+    if args.command == "serve":
+        return _serve(args)
+    if args.command == "promote":
+        return _promote(args)
     if args.command == "backtest-connections":
         return _backtest(args)
     if args.command == "connection":

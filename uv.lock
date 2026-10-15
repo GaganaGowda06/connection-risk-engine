@@ -2503,6 +2503,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "confluent-kafka" },
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "lightgbm" },
     { name = "mlflow" },
@@ -2517,6 +2518,7 @@ dependencies = [
     { name = "scipy" },
     { name = "structlog" },
     { name = "tenacity" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -2529,6 +2531,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "confluent-kafka", specifier = ">=2.16.0" },
+    { name = "fastapi", specifier = ">=0.143.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "lightgbm", specifier = ">=4.7.0" },
     { name = "mlflow", specifier = ">=3" },
@@ -2543,6 +2546,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.18.1" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tenacity", specifier = ">=9.2.1" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [package.metadata.requires-dev]
