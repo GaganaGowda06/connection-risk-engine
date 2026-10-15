@@ -77,3 +77,9 @@ The most common codes were 895, 871, 824, 832, 841 and 816. Code 895 also appear
 - A service is identified by `rid` (15 digits starting with the service date) and `uid`.
 - Forecasts and actuals sit under each TS `Location` as `arr`, `dep` or `pass`, with `et` (estimated time) and `src`. Actual times use `at` instead of `et`, as in `"pass":{"at":"11:21","atClass":"Automatic","src":"TD"}`. 7,552 of the 17,394 messages (43%) contain at least one `at`, so actuals are plentiful in the live feed.
 - A `Location` is a list when there are several stops and a single object when there is one. A parser must accept both.
+
+## Stored line format
+
+The trial lines in `data/raw/darwin/2026-10-15/10.jsonl.gz` (received 10:21 to 10:31 UTC) use the first format: `received_at`, `partition`, `offset` and `value`, where `value` is the full JMS wrapper and the Darwin payload is the JSON string in `value.bytes`. Lines written by the resumable capture use `partition`, `offset`, `kafka_ts` (milliseconds) and `payload` (the parsed Darwin message), or `raw` when a message was not in the expected shape. Both formats share one file for that hour, and a reader must handle both.
+
+After stripping the wrapper the feed is about 1.2 MB per minute, against 2.7 MB with the wrapper.

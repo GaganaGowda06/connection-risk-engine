@@ -9,3 +9,4 @@
 - 2026-10-14 Repo public on GitHub; commits use the noreply email.
 - 2026-10-14 CI runners pinned to ubuntu-24.04 so the 2026-10-19 ubuntu-latest switch to Ubuntu 26 cannot break CI unannounced.
 - 2026-10-15 Cancellation labelling unresolved: no cancelled service appeared in 25 sampled BHM to EUS services, so HSP cancellation representation is unknown. Reason codes are numeric strings on late stops. Needs a larger sample using one hour windows.
+- 2026-10-15 Darwin captured unfiltered and resumable via committed offsets; route filtering in Spark.

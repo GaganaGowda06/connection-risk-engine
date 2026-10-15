@@ -9,3 +9,4 @@ data/*
 !data/.gitkeep
 mlruns/
 .DS_Store
+logs/

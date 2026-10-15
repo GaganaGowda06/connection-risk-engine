@@ -19,6 +19,13 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - `data/` is git-ignored except `data/.gitkeep`.
 - Secrets live only in `.env`; settings use the `RAIL_` prefix.
 
+## Running the Darwin capture
+- Keep the Mac plugged in with the lid open. Sleep pauses it, and it resumes from committed offsets.
+- Start: `nohup ./scripts/run_capture.sh > /dev/null 2>&1 &`
+- Stop: `pkill -INT -f scripts/capture_darwin.py` (flushes, commits offsets, closes cleanly)
+- Check: `tail logs/capture.log` and `ls -l data/raw/darwin/$(date -u +%F)/`
+- Anything older than the topic's retention is lost if the capture is down too long.
+
 ## Stage plan
 1. Repo skeleton, config, logging, CLI, protection hook.
 2. Ingest Darwin and HSP data to data/raw.
