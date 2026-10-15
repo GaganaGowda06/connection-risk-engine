@@ -95,7 +95,46 @@ def _ingest_hsp(args: argparse.Namespace) -> int:
         empty_details=c.empty_details,
         quarantine_reasons=c.reasons,
     )
-    return 1 if c.failed_windows else 0
+    # 2 means some windows failed and a rerun will retry them; 1 means stop and look
+    return 2 if c.failed_windows else 0
+
+
+def _rebuild_hsp(args: argparse.Namespace) -> int:
+    from rail_risk.ingest.hsp import Manifest, rebuild_interim
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+    except ValueError as exc:
+        log.error("config_invalid", error=str(exc))
+        return 1
+    interim = settings.data_dir / "interim"
+    manifest = Manifest(interim / "hsp_manifest.sqlite")
+    try:
+        rows, bad = rebuild_interim(manifest, settings.data_dir / "raw" / "hsp", interim)
+    finally:
+        manifest.close()
+    log.info("rebuild_done", rows=rows, quarantined_rows=bad)
+    return 0
+
+
+def _status() -> int:
+    from rail_risk.status import darwin_status, hsp_status
+
+    try:
+        data_dir = Settings().data_dir
+    except ValueError as exc:
+        print(f"config_invalid: {exc}")
+        return 1
+    print("HSP")
+    for line in hsp_status(data_dir / "interim" / "hsp_manifest.sqlite"):
+        print(f"  {line}")
+    print("Darwin")
+    for line in darwin_status(data_dir / "raw" / "darwin"):
+        print(f"  {line}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,9 +146,16 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--start", type=date.fromisoformat, required=True)
     ing.add_argument("--end", type=date.fromisoformat, required=True)
     ing.add_argument("--hours", type=_hours, default=range(6, 22))
+    ing.add_argument("--newest-first", action="store_true")
+    sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
+    sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     if args.command == "check":
         return _check()
     if args.command == "ingest-hsp":
         return _ingest_hsp(args)
+    if args.command == "rebuild-hsp":
+        return _rebuild_hsp(args)
+    if args.command == "status":
+        return _status()
     return 2  # pragma: no cover

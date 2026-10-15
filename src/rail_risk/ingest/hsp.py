@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -124,6 +124,12 @@ class Manifest:
                 quarantined INTEGER, done_at TEXT, PRIMARY KEY (route, day, hour));
             CREATE TABLE IF NOT EXISTS rids (
                 rid TEXT PRIMARY KEY, route TEXT, day TEXT, hour INTEGER);
+            CREATE TABLE IF NOT EXISTS rid_routes (
+                rid TEXT, route TEXT, PRIMARY KEY (rid, route));
+            CREATE TABLE IF NOT EXISTS call_log (
+                route TEXT, day TEXT, hour INTEGER, metrics_calls INTEGER, detail_calls INTEGER,
+                retries INTEGER, failed INTEGER, at TEXT);
+            INSERT OR IGNORE INTO rid_routes SELECT rid, route FROM rids;
             """
         )
 
@@ -138,17 +144,49 @@ class Manifest:
         return self._db.execute("SELECT 1 FROM rids WHERE rid=?", (rid,)).fetchone() is not None
 
     def complete_window(
-        self, route: str, day: date, hour: int, rids: list[str], rows: int, quarantined: int
+        self,
+        route: str,
+        day: date,
+        hour: int,
+        fresh: list[str],
+        known: list[str],
+        rows: int,
+        quarantined: int,
     ) -> None:
+        """Record a finished window. `fresh` rids were fetched here, `known` were fetched before."""
         with self._db:
             self._db.executemany(
                 "INSERT OR IGNORE INTO rids VALUES (?,?,?,?)",
-                [(r, route, day.isoformat(), hour) for r in rids],
+                [(r, route, day.isoformat(), hour) for r in fresh],
+            )
+            self._db.executemany(
+                "INSERT OR IGNORE INTO rid_routes VALUES (?,?)",
+                [(r, route) for r in fresh + known],
             )
             self._db.execute(
                 "INSERT OR REPLACE INTO windows VALUES (?,?,?,?,?,?,datetime('now'))",
-                (route, day.isoformat(), hour, len(rids), rows, quarantined),
+                (route, day.isoformat(), hour, len(fresh), rows, quarantined),
             )
+
+    def log_calls(
+        self, route: str, day: date, hour: int, before: "Counters", after: "Counters", failed: bool
+    ) -> None:
+        with self._db:
+            self._db.execute(
+                "INSERT INTO call_log VALUES (?,?,?,?,?,?,?,datetime('now'))",
+                (
+                    route,
+                    day.isoformat(),
+                    hour,
+                    after.metrics_calls - before.metrics_calls,
+                    after.detail_calls - before.detail_calls,
+                    after.retries - before.retries,
+                    int(failed),
+                ),
+            )
+
+    def query(self, sql: str, params: tuple = ()) -> list[tuple]:
+        return self._db.execute(sql, params).fetchall()
 
     def close(self) -> None:
         self._db.close()
@@ -214,9 +252,11 @@ def run_window(
 
     rows: list[dict[str, Any]] = []
     fresh: list[str] = []
+    known: list[str] = []
     for rid in rids_from_metrics(metrics):
         if manifest.has_rid(rid):
-            continue  # already parsed by an earlier window
+            known.append(rid)  # fetched and parsed already, possibly for another route
+            continue
         details_path = raw_root / "details" / day.isoformat() / f"{rid}.json"
         if details_path.exists():
             payload = read_json(details_path)
@@ -241,7 +281,7 @@ def run_window(
         )
         for reason in bad.drop_duplicates("rid")["quarantine_reason"]:
             c.reasons[reason] = c.reasons.get(reason, 0) + 1
-    manifest.complete_window(route.id, day, hour, fresh, len(good), len(bad))
+    manifest.complete_window(route.id, day, hour, fresh, known, len(good), len(bad))
     c.services += len(fresh)
     c.rows += len(good)
     c.quarantined_rows += len(bad)
@@ -258,24 +298,57 @@ def backfill(
     *,
     raw_root: Path = Path("data/raw/hsp"),
     interim_root: Path = Path("data/interim"),
+    newest_first: bool = False,
 ) -> Counters:
     """Run every unfinished window for route between start and end inclusive."""
     log = get_logger("hsp")
     c = client.counters
-    day = start
-    while day <= end:
+    span = (end - start).days
+    days = [start + timedelta(days=i) for i in range(span + 1)]
+    if newest_first:
+        days.reverse()
+    for day in days:
         for hour in hours:
             if manifest.window_done(route.id, day, hour):
                 c.windows_skipped += 1
                 continue
+            before = replace(c)
             try:
                 run_window(
                     route, day, hour, client, manifest, raw_root=raw_root, interim_root=interim_root
                 )
             except (httpx.TimeoutException, RetryableHttpError) as exc:
                 c.failed_windows += 1
+                manifest.log_calls(route.id, day, hour, before, c, failed=True)
                 log.error("window_failed", route=route.id, day=str(day), hour=hour, error=str(exc))
+            except HspHttpError:
+                manifest.log_calls(route.id, day, hour, before, c, failed=True)
+                raise
             else:
+                manifest.log_calls(route.id, day, hour, before, c, failed=False)
                 log.info("window_done", route=route.id, day=str(day), hour=hour)
-        day += timedelta(days=1)
     return c
+
+
+def rebuild_interim(manifest: Manifest, raw_root: Path, interim_root: Path) -> tuple[int, int]:
+    """Re-parse saved raw details into the interim Parquet, with no API calls.
+
+    Each rid is written under the (route, day, hour) window that first fetched it, so the files
+    match the ones the original run produced. Returns (rows, quarantined_rows).
+    """
+    groups: dict[tuple[str, str, int], list[str]] = {}
+    for rid, route, day, hour in manifest.query("SELECT rid, route, day, hour FROM rids"):
+        groups.setdefault((route, day, hour), []).append(rid)
+    total_rows = total_bad = 0
+    for (route, day, hour), rids in sorted(groups.items()):
+        rows: list[dict[str, Any]] = []
+        for rid in sorted(rids):
+            rows.extend(parse_details(read_json(raw_root / "details" / day / f"{rid}.json")))
+        good, bad = validate(to_frame(rows))
+        name = f"{route}_{hour:02d}.parquet"
+        _write_parquet(good, interim_root / "hsp_stops" / f"date={day}" / name)
+        if len(bad):
+            _write_parquet(bad, interim_root / "hsp_quarantine" / f"date={day}" / name)
+        total_rows += len(good)
+        total_bad += len(bad)
+    return total_rows, total_bad
