@@ -288,6 +288,139 @@ def coverage_by_band(
     )  # fmt: skip
 
 
+# threshold reliability
+
+THRESHOLDS = (15, 30, 60)  # minutes late; each must be a lower edge of the delay bands
+
+
+def threshold_probability(probs: np.ndarray, bands: Bands, minutes: int) -> np.ndarray:
+    """P(delay >= minutes) from band probabilities. The threshold must be a band edge."""
+    if minutes not in bands.lower_edges:
+        raise ValueError(f"{minutes} is not a band edge in {bands.lower_edges}")
+    return probs[:, bands.lower_edges.index(minutes) :].sum(axis=1)
+
+
+def _bin_stats(p: np.ndarray, o: np.ndarray, bins: int) -> tuple[float, float, np.ndarray]:
+    """(Brier, ECE, per-bin [mean predicted, observed rate, n]) with equal-count bins.
+
+    Rows are ordered by predicted probability (stable, so ties keep row order) and cut into
+    `bins` parts of near-equal size. ECE is the row-weighted mean of |predicted - observed|.
+    """
+    order = np.argsort(p, kind="stable")
+    table = np.full((bins, 3), np.nan)
+    ece = 0.0
+    for k, idx in enumerate(np.array_split(order, bins)):
+        if len(idx) == 0:
+            continue
+        table[k] = (p[idx].mean(), o[idx].mean(), len(idx))
+        ece += len(idx) / len(p) * abs(table[k, 0] - table[k, 1])
+    return float(np.mean((p - o) ** 2)), float(ece), table
+
+
+def reliability(
+    dates: np.ndarray,
+    p: np.ndarray,
+    o: np.ndarray,
+    *,
+    bins: int = 10,
+    resamples: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> dict[str, Any]:
+    """Brier, ECE and a reliability table with percentile bootstrap CIs over service dates.
+
+    Each resample redraws whole dates and recomputes the equal-count bins, so a bin's interval
+    reflects both which rows land in it and what they did.
+    """
+    o = np.asarray(o, dtype=float)
+    brier, ece, table = _bin_stats(p, o, bins)
+    udates, inverse = np.unique(dates, return_inverse=True)
+    members = [np.flatnonzero(inverse == i) for i in range(len(udates))]
+    rng = np.random.default_rng(seed)
+    b_brier, b_ece = np.empty(resamples), np.empty(resamples)
+    b_table = np.empty((resamples, bins, 3))
+    for r in range(resamples):
+        pick = rng.integers(0, len(members), len(members))
+        idx = np.concatenate([members[i] for i in pick])
+        b_brier[r], b_ece[r], b_table[r] = _bin_stats(p[idx], o[idx], bins)
+    alpha = (1 - confidence) / 2 * 100
+
+    def ci(values: np.ndarray, point: float) -> dict[str, float | None]:
+        if np.isnan(point):
+            return {"value": None, "ci_low": None, "ci_high": None}
+        lo, hi = np.nanpercentile(values, [alpha, 100 - alpha])
+        return {"value": float(point), "ci_low": float(lo), "ci_high": float(hi)}
+
+    rows = []
+    for k in range(bins):
+        rows.append(
+            {
+                "bin": k + 1,
+                "n": None if np.isnan(table[k, 2]) else int(table[k, 2]),
+                "predicted": ci(b_table[:, k, 0], table[k, 0]),
+                "observed": ci(b_table[:, k, 1], table[k, 1]),
+            }
+        )
+    return {
+        "n_rows": int(len(p)),
+        "base_rate": float(o.mean()),
+        "brier": ci(b_brier, brier),
+        "ece": ci(b_ece, ece),
+        "table": rows,
+    }
+
+
+def threshold_reliability(
+    dates: np.ndarray,
+    y: np.ndarray,
+    probs: np.ndarray,
+    bands: Bands,
+    *,
+    resamples: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> dict[str, dict[str, Any]]:
+    """Reliability of P(delay >= t) for each threshold, from band probabilities."""
+    return {
+        str(t): reliability(
+            dates,
+            threshold_probability(probs, bands, t),
+            (y >= t).astype(float),
+            resamples=resamples,
+            seed=seed,
+            confidence=confidence,
+        )
+        for t in THRESHOLDS
+    }
+
+
+def paired_mae_difference(
+    dates: np.ndarray,
+    y: np.ndarray,
+    a: np.ndarray,
+    b: np.ndarray,
+    *,
+    resamples: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> dict[str, float | None]:
+    """MAE of `a` minus MAE of `b`, with a paired bootstrap over service dates.
+
+    Negative means `a` is better. The CI excluding zero is the test for a real difference.
+    """
+    udates, inverse = np.unique(dates, return_inverse=True)
+    n = np.bincount(inverse).astype(float)
+    err_a = np.bincount(inverse, weights=np.abs(a - y))
+    err_b = np.bincount(inverse, weights=np.abs(b - y))
+    point = err_a.sum() / n.sum() - err_b.sum() / n.sum()
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(n), size=(resamples, len(n)))
+    boot = (err_a[idx].sum(axis=1) - err_b[idx].sum(axis=1)) / n[idx].sum(axis=1)
+    alpha = (1 - confidence) / 2 * 100
+    lo, hi = np.percentile(boot, [alpha, 100 - alpha])
+    return {"value": float(point), "ci_low": float(lo), "ci_high": float(hi)}
+
+
 # baselines
 
 
@@ -457,6 +590,9 @@ def evaluate(
                 cell["coverage_by_band"] = coverage_by_band(dates, y, pred, bands, **kw)
                 cell["coverage_by_group"] = coverage_by_group(
                     dates, y, pred, bands, lateness_groups(h), group_labels(), **kw
+                )
+                cell["threshold_reliability"] = threshold_reliability(
+                    dates, y, pred.probs, bands, **kw
                 )
                 results[name][block][str(horizon)] = cell
     counts = {

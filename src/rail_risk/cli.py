@@ -198,6 +198,7 @@ def _train(args: argparse.Namespace) -> int:
         make_split,
     )
     from rail_risk.models.pipeline import (
+        git_state,
         guard,
         load_train_config,
         log_to_mlflow,
@@ -222,7 +223,14 @@ def _train(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         log.error("train_invalid", error=str(exc))
         return 1
-    tag = guard(len(split.train), cfg["min_train_days"])
+    sha, dirty = git_state()
+    tag = guard(len(split.train), cfg["min_train_days"], dirty)
+    if dirty and len(split.train) >= cfg["min_train_days"]:
+        log.warning(
+            "tree_dirty_not_reportable",
+            commit=sha,
+            hint="commit and push first so the logged sha describes the code that ran",
+        )
     result, fitted = run_training(snaps, split, bands, eval_cfg, cfg)
     run_id = log_to_mlflow(
         result,
@@ -232,13 +240,16 @@ def _train(args: argparse.Namespace) -> int:
         snapshot_path=settings.data_dir / "features" / "snapshots",
         train_range=(split.train[0].isoformat(), split.train[-1].isoformat()),
         seed=cfg["seed"],
+        git_sha=sha,
+        git_dirty=dirty,
     )
     if tag == "reportable":
-        write_model_report(result, args.report, run_id)
+        write_model_report(result, args.report, run_id, sha)
     log.info(
         "train_done",
         run_id=run_id,
         tag=tag,
+        commit=sha,
         train_days=len(split.train),
         min_train_days=cfg["min_train_days"],
         report=str(args.report) if tag == "reportable" else "not written (smoke run)",

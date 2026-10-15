@@ -65,7 +65,7 @@ def test_split_rejects_overlap_disorder_and_missing_gap():
 def test_shipped_config_files_load():
     root = Path(__file__).parent.parent / "config"
     cfg = load_split_config(root / "split.yaml")
-    assert (cfg.test_days, cfg.validation_days, cfg.gap_days, cfg.resamples) == (7, 7, 1, 1000)
+    assert (cfg.test_days, cfg.validation_days, cfg.gap_days, cfg.resamples) == (7, 14, 1, 1000)
     bands = load_bands(root / "delay_bands.yaml")
     assert bands.provisional is True
     assert bands.labels == ["0-14", "15-29", "30-59", "60-119", "120+"]

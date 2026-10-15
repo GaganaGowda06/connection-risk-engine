@@ -4,7 +4,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rail_risk.evaluation import Bands, SplitConfig, make_split
+from rail_risk.evaluation import (
+    Bands,
+    SplitConfig,
+    make_split,
+    paired_mae_difference,
+    reliability,
+    threshold_probability,
+)
 from rail_risk.features.snapshots import FEATURE_COLUMNS
 from rail_risk.lateness import group_labels, lateness_base, lateness_groups, merge_groups
 from rail_risk.models.bands import IsotonicOvR, TemperatureScaler, choose_calibrator
@@ -113,6 +120,7 @@ def test_guard_threshold():
     assert guard(59, 60) == "smoke"
     assert guard(60, 60) == "reportable"
     assert guard(120, 60) == "reportable"
+    assert guard(120, 60, dirty=True) == "smoke"  # a dirty tree is never reportable
 
 
 def test_validation_is_split_in_two_only_with_enough_days():
@@ -282,3 +290,39 @@ def test_fit_models_keeps_the_better_target_per_horizon():
     model, grids = fit_models(df.iloc[:4000], df.iloc[4000:], df.iloc[4000:], CFG, cols)
     assert set(grids) == {"direct", "residual"}
     assert model.choice[60] == min(model.tune_pinball, key=lambda t: model.tune_pinball[t][60])
+
+
+def test_threshold_probability_sums_the_bands_at_or_above_the_edge():
+    probs = np.array([[0.5, 0.2, 0.15, 0.1, 0.05], [1.0, 0, 0, 0, 0]])
+    assert threshold_probability(probs, BANDS, 15) == pytest.approx([0.5, 0.0])
+    assert threshold_probability(probs, BANDS, 30) == pytest.approx([0.3, 0.0])
+    assert threshold_probability(probs, BANDS, 60) == pytest.approx([0.15, 0.0])
+    with pytest.raises(ValueError):
+        threshold_probability(probs, BANDS, 20)
+
+
+def test_reliability_is_small_for_calibrated_and_large_for_miscalibrated():
+    rng = np.random.default_rng(1)
+    n = 6000
+    p = rng.uniform(0, 1, n)
+    dates = np.array([date(2026, 1, 1) + timedelta(days=i % 12) for i in range(n)])
+    good = reliability(dates, p, (rng.random(n) < p).astype(float), resamples=200, seed=2)
+    bad = reliability(dates, p, (rng.random(n) < p**3).astype(float), resamples=200, seed=2)
+    assert good["ece"]["value"] < 0.04 < bad["ece"]["value"]
+    assert good["brier"]["value"] < bad["brier"]["value"]
+    assert len(good["table"]) == 10 and sum(b["n"] for b in good["table"]) == n
+    low, high = good["table"][0], good["table"][-1]
+    assert low["predicted"]["value"] < 0.15 and high["predicted"]["value"] > 0.85
+    assert good["table"][5]["observed"]["ci_low"] <= good["table"][5]["observed"]["value"]
+
+
+def test_paired_mae_difference_sign_and_interval():
+    rng = np.random.default_rng(3)
+    n = 2000
+    y = rng.normal(0, 5, n)
+    dates = np.array([date(2026, 1, 1) + timedelta(days=i % 14) for i in range(n)])
+    better, worse = y + rng.normal(0, 1, n), y + rng.normal(0, 4, n)
+    d = paired_mae_difference(dates, y, better, worse, resamples=300, seed=0)
+    assert d["value"] < 0 and d["ci_high"] < 0
+    same = paired_mae_difference(dates, y, worse, worse, resamples=300, seed=0)
+    assert same["value"] == 0.0 and same["ci_low"] == 0.0 == same["ci_high"]

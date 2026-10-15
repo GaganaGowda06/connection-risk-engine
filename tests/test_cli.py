@@ -89,9 +89,12 @@ def test_ingest_hsp_passes_newest_first_and_exit_codes(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(("min_days", "expect_report"), [(60, False), (3, True)])
-def test_train_guard_blocks_the_report_below_the_threshold(
-    monkeypatch, tmp_path, capsys, min_days, expect_report
+@pytest.mark.parametrize(
+    ("min_days", "dirty", "expect_report"),
+    [(60, False, False), (3, False, True), (3, True, False)],
+)
+def test_train_guard_blocks_the_report_below_the_threshold_or_on_a_dirty_tree(
+    monkeypatch, tmp_path, capsys, min_days, dirty, expect_report
 ):
     from datetime import date, timedelta
 
@@ -100,7 +103,7 @@ def test_train_guard_blocks_the_report_below_the_threshold(
     import rail_risk.evaluation as ev
     import rail_risk.models.pipeline as pipe
 
-    days = [date(2026, 9, 1) + timedelta(days=i) for i in range(20)]
+    days = [date(2026, 9, 1) + timedelta(days=i) for i in range(30)]
     snaps = pd.DataFrame({"route_id": "r1", "service_date": days})
     monkeypatch.setattr(ev, "load_snapshots", lambda path: snaps)
     monkeypatch.setattr(ev, "complete_days", lambda *a, **k: days)
@@ -109,11 +112,15 @@ def test_train_guard_blocks_the_report_below_the_threshold(
 
     def fake_log(result, fitted, **kw):
         seen["tag"] = kw["tag"]
+        seen["sha"], seen["dirty"] = kw["git_sha"], kw["git_dirty"]
         return "run123"
 
     monkeypatch.setattr(pipe, "log_to_mlflow", fake_log)
+    monkeypatch.setattr(pipe, "git_state", lambda: ("a" * 40, dirty))
     written = []
-    monkeypatch.setattr(pipe, "write_model_report", lambda r, path, run_id: written.append(path))
+    monkeypatch.setattr(
+        pipe, "write_model_report", lambda r, path, run_id, sha="": written.append(path)
+    )
     cfg = tmp_path / "train.yaml"
     cfg.write_text(f"min_train_days: {min_days}\nseed: 1\n")
     root = Path(__file__).parent.parent / "config"
@@ -128,5 +135,6 @@ def test_train_guard_blocks_the_report_below_the_threshold(
     )  # fmt: skip
     assert code == 0
     assert seen["tag"] == ("reportable" if expect_report else "smoke")
+    assert seen["sha"] == "a" * 40 and seen["dirty"] is dirty
     assert bool(written) is expect_report
     assert "run123" in capsys.readouterr().out
