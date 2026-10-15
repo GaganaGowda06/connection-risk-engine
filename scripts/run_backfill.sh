@@ -2,12 +2,12 @@
 # HSP backfill, newest first, in 30 day chunks, for each route. Safe to stop and restart:
 # finished windows are in the manifest and are skipped, and raw responses are write-once.
 #   usage: scripts/run_backfill.sh OLDEST [NEWEST]    (dates YYYY-MM-DD; NEWEST defaults to yesterday)
-#   env:   ROUTES="bhm-eus bhm-man"
+#   env:   ROUTES="bhm-eus ast-bhm bhm-man"   (queue order; routes run one after another)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 OLDEST="${1:?usage: run_backfill.sh OLDEST [NEWEST]}"
 NEWEST="${2:-$(date -v-1d +%F)}"
-ROUTES="${ROUTES:-bhm-eus bhm-man}"
+ROUTES="${ROUTES:-bhm-eus ast-bhm bhm-man}"
 mkdir -p logs
 exec >> logs/backfill.log 2>&1
 caffeinate -i -w $$ &   # no idle sleep while this script is alive

@@ -14,7 +14,14 @@ from rail_risk.evaluation import (
 )
 from rail_risk.features.snapshots import FEATURE_COLUMNS
 from rail_risk.lateness import group_labels, lateness_base, lateness_groups, merge_groups
-from rail_risk.models.bands import IsotonicOvR, TemperatureScaler, choose_calibrator
+from rail_risk.models.bands import (
+    IsotonicOvR,
+    TemperatureScaler,
+    choose_calibrator,
+    exceedance,
+    fit_threshold_calibration,
+    rebuild_bands,
+)
 from rail_risk.models.pipeline import fit_all, guard, run_training, validation_halves
 from rail_risk.models.quantile import (
     QuantileFit,
@@ -178,6 +185,7 @@ def test_run_is_deterministic_and_blind_to_test_labels():
     altered.loc[altered["service_date"].isin(split.test), "label_delay_min"] += 300.0
     c, fit_c = run_training(altered, split, BANDS, EVAL_CFG, CFG)
     for key in ("params", "best_iteration", "conformal_offsets", "global_offsets",
+                "threshold_calibration",
                 "target_by_horizon", "group_merges", "calibration_comparison",
                 "band_calibration", "band_calibration_cv_log_loss", "grid"):  # fmt: skip
         assert c["model"][key] == a["model"][key], key
@@ -326,3 +334,46 @@ def test_paired_mae_difference_sign_and_interval():
     assert d["value"] < 0 and d["ci_high"] < 0
     same = paired_mae_difference(dates, y, worse, worse, resamples=300, seed=0)
     assert same["value"] == 0.0 and same["ci_low"] == 0.0 == same["ci_high"]
+
+
+def test_rebuilt_bands_are_monotone_and_sum_to_one_even_when_exceedances_cross():
+    e = {15: np.array([0.3, 0.2]), 30: np.array([0.4, 0.1]), 60: np.array([0.5, 0.05]),
+         120: np.array([0.0, 0.0])}  # fmt: skip
+    p = rebuild_bands(e, BANDS)
+    assert p.shape == (2, 5) and (p >= 0).all()
+    assert p.sum(axis=1) == pytest.approx(1.0)
+    assert exceedance(p, BANDS, 15)[0] == pytest.approx(0.3)
+    assert exceedance(p, BANDS, 30)[0] == pytest.approx(0.3)  # capped by P(>=15)
+    assert (exceedance(p, BANDS, 30) <= exceedance(p, BANDS, 15) + 1e-12).all()
+
+
+def _overconfident(n: int, seed: int):
+    rng = np.random.default_rng(seed)
+    true15 = rng.uniform(0.02, 0.6, n)
+    delay_late = rng.random(n) < true15
+    y = np.where(delay_late, rng.choice([1, 2, 3, 4], n, p=[0.6, 0.25, 0.1, 0.05]), 0)
+    claimed = np.clip(true15 * 1.8 + 0.05, 0.01, 0.95)  # exceedance claimed too high
+    rest = rng.dirichlet([3, 2, 1, 0.5], n)
+    p = np.column_stack([1 - claimed, claimed[:, None] * rest])
+    dates = np.array([i % 14 for i in range(n)])
+    return p, y, dates
+
+
+def test_threshold_calibration_improves_and_choice_ignores_later_blocks():
+    p_cal, y_cal, d_cal = _overconfident(4000, 1)
+    p_tune, y_tune, _ = _overconfident(3000, 2)
+    p_new, y_new, _ = _overconfident(4000, 3)
+    cal = fit_threshold_calibration(p_cal, y_cal, p_tune, y_tune, d_cal, BANDS, same=False)
+    assert cal.method in {"isotonic", "platt"} and set(cal.tune_log_loss) >= {"isotonic", "platt"}
+    after = cal.transform(p_new)
+    assert after.sum(axis=1) == pytest.approx(1.0) and (after >= 0).all()
+    before15, after15 = exceedance(p_new, BANDS, 15), exceedance(after, BANDS, 15)
+    obs = (y_new >= 1).astype(float)
+    assert np.mean((after15 - obs) ** 2) < np.mean((before15 - obs) ** 2)
+    assert abs(after15.mean() - obs.mean()) < abs(before15.mean() - obs.mean())
+    # the choice depends only on the two validation halves, not on any later data
+    again = fit_threshold_calibration(p_cal, y_cal, p_tune, y_tune, d_cal, BANDS, same=False)
+    assert again.method == cal.method and again.tune_log_loss == cal.tune_log_loss
+    # one validation block: cross-validated over dates, still returns a valid choice
+    same = fit_threshold_calibration(p_cal, y_cal, p_cal, y_cal, d_cal, BANDS, same=True)
+    assert same.method in {"isotonic", "platt"}

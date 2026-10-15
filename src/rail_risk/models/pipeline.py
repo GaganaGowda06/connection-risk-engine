@@ -81,18 +81,26 @@ def fit_all(
     return Fitted(quantile, band_fit, grid, halved)
 
 
-def model_predictions(fitted: Fitted, df: pd.DataFrame, mode: str = "mondrian") -> Predictions:
+def model_predictions(
+    fitted: Fitted, df: pd.DataFrame, mode: str = "mondrian", threshold: bool = True
+) -> Predictions:
     point, lo, hi = fitted.quantile.predict(df, mode)
-    return Predictions(point, lo, hi, fitted.bands.predict(df))
+    probs = fitted.bands.predict(df) if threshold else fitted.bands.predict_pre_threshold(df)
+    return Predictions(point, lo, hi, probs)
 
 
 def score_model(
-    fitted: Fitted, df: pd.DataFrame, bands: Bands, cfg: SplitConfig, mode: str = "mondrian"
+    fitted: Fitted,
+    df: pd.DataFrame,
+    bands: Bands,
+    cfg: SplitConfig,
+    mode: str = "mondrian",
+    threshold: bool = True,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     kw = {"resamples": cfg.resamples, "seed": cfg.seed, "confidence": cfg.confidence}
     for horizon, h in df.groupby("horizon_min"):
-        pred = model_predictions(fitted, h, mode)
+        pred = model_predictions(fitted, h, mode, threshold)
         dates = h["service_date"].to_numpy()
         y = h["label_delay_min"].to_numpy(dtype=float)
         cell = score(dates, y, pred, bands, **kw)
@@ -170,6 +178,11 @@ def run_training(
         result["results"].setdefault("model_global_cqr", {})[name] = score_model(
             fitted, block, bands, eval_cfg, mode="global"
         )
+    # the band probabilities before the threshold recalibration, as a comparison column
+    for name, block in (("validation", valid), ("test", test)):
+        result["results"].setdefault("model_pre_threshold_cal", {})[name] = score_model(
+            fitted, block, bands, eval_cfg, threshold=False
+        )
     result["mae_vs_bar"] = _mae_vs_bar(result, fitted, train, test, bands, eval_cfg)
     result["train_days"] = len(split.train)
     fits = fitted.quantile.fits
@@ -194,6 +207,11 @@ def run_training(
             fitted, tune, calibrate, cfg["nominal_coverage"], halved
         ),
         "band_calibration": fitted.bands.calibrator.name,
+        "threshold_calibration": {
+            "method": fitted.bands.threshold.method,
+            "tune_log_loss": fitted.bands.threshold.tune_log_loss,
+            "validation_split_in_two": fitted.validation_split,
+        },
         "band_calibration_cv_log_loss": fitted.bands.cv_log_loss,
         "validation_split_in_two": fitted.validation_split,
         "grid": fitted.grid,
@@ -312,6 +330,7 @@ def log_to_mlflow(
                 "best_iteration": json.dumps(result["model"]["best_iteration"]),
                 "conformal": "mondrian_by_lateness",
                 "band_calibration": result["model"]["band_calibration"],
+                "threshold_calibration": result["model"]["threshold_calibration"]["method"],
                 "validation_split_in_two": result["model"]["validation_split_in_two"],
                 "seed": seed,
                 "train_days": result["train_days"],
@@ -382,7 +401,11 @@ def _reliability_lines(result: dict[str, Any], h: int) -> list[str]:
         "|---|---|---|---|---|",
     ]
     for t in ("15", "30", "60"):
-        for key, label in (("model", "Model"), ("historical", "Historical")):
+        for key, label in (
+            ("model", "Model, after threshold calibration"),
+            ("model_pre_threshold_cal", "Model, before threshold calibration"),
+            ("historical", "Historical"),
+        ):
             r = test[key]["test"][str(h)]["threshold_reliability"][t]
             lines.append(
                 f"| {t} minutes | {r['base_rate']:.3f} | {label} | "
@@ -443,7 +466,11 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str, sha: str
         "calibration rows is merged into its neighbour. The target per horizon was chosen by "
         "tuning pinball loss between the direct delay and the delay minus the lateness at T: "
         f"{target_text}. Band probabilities come from a LightGBM band model with "
-        f"{m['band_calibration']} calibration. The delay bands are provisional.",
+        f"{m['band_calibration']} calibration. P(at least 15) and P(at least 30) are then "
+        f"recalibrated with {m['threshold_calibration']['method']} regression fitted on the "
+        "calibration rows and chosen by log loss on the tuning rows, and the band probabilities "
+        "are rebuilt from the recalibrated exceedances so that they stay monotone and sum to 1. "
+        "The delay bands are provisional.",
         "",
         "Two kinds of check are reported. The conformal guarantee is coverage conditional on the "
         "state known at T, so coverage by observed lateness is the interval check. For passengers "
