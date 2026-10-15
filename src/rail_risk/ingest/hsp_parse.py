@@ -1,11 +1,20 @@
 """Parse HSP serviceDetails into one row per service per stop, and validate at the boundary.
 
-Times in HSP are HHMM strings in UK local time, with an empty string for missing values. They
-are stored here as naive local timestamps.
+Times in HSP are HHMM strings in Europe/London local time, with an empty string for missing
+values. They are stored as timezone-aware UTC timestamps. `date_of_service` stays a plain
+service date.
+
+Daylight saving: an ambiguous local time (the repeated hour when clocks go back, for example
+2026-10-25 01:30) is read as the first occurrence (BST) unless that would put the time before the
+previous event of the same service, in which case it is read as the second (GMT). A
+non-existent local time (clocks go forward, for example 2026-03-29 01:30) is read with the
+offset in force before the change, so it lands at the same UTC instant as the wall clock
+(01:30Z, which is 02:30 BST), a shift forward by the length of the gap.
 """
 
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandera.pandas as pa
@@ -24,6 +33,22 @@ COLUMNS = [
     "candidate_cancelled",
 ]
 MAX_ACTUAL_DEVIATION = pd.Timedelta(hours=6)
+LONDON = ZoneInfo("Europe/London")
+# a backwards step in the scheduled chain larger than this is midnight, smaller is a clock change
+ROLLOVER_MIN_DROP = timedelta(hours=3)
+
+
+def to_utc(local: datetime, floor: datetime | None = None) -> datetime:
+    """Europe/London wall clock (naive) to aware UTC. See the module docstring for DST rules."""
+    first = local.replace(tzinfo=LONDON, fold=0)
+    second = local.replace(tzinfo=LONDON, fold=1)
+    utc_first = first.astimezone(UTC)
+    utc_second = second.astimezone(UTC)
+    # ambiguous: the second occurrence is later in UTC. Non-existent: fold 0 already uses the
+    # pre-change offset, which is the documented reading.
+    if utc_second > utc_first and floor is not None and utc_first < floor:
+        return utc_second
+    return utc_first
 
 
 def _hhmm(value: str | None) -> time | None:
@@ -52,21 +77,25 @@ def parse_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidate_cancelled = not (last.get("actual_ta") or last.get("actual_td"))
 
     rows: list[dict[str, Any]] = []
-    sched_prev = datetime.combine(service_date, time(0, 0))
-    actual_prev: datetime | None = None
+    sched_prev = datetime.combine(service_date, time(0, 0))  # naive local wall clock
+    sched_prev_utc: datetime | None = None
+    actual_prev: datetime | None = None  # naive local wall clock
+    actual_prev_utc: datetime | None = None
     for seq, loc in enumerate(locations):
+        local: dict[str, datetime | None] = {}
         resolved: dict[str, datetime | None] = {}
-        # scheduled times run forward along the stop list, so a drop means midnight passed
+        # scheduled times run forward along the stop list; a big drop means midnight passed
         for key, field in (("sched_arr", "gbtt_pta"), ("sched_dep", "gbtt_ptd")):
             t = _hhmm(loc.get(field))
             if t is None:
-                resolved[key] = None
+                local[key] = resolved[key] = None
                 continue
             dt = datetime.combine(sched_prev.date(), t)
-            if dt < sched_prev:
+            if sched_prev - dt > ROLLOVER_MIN_DROP:
                 dt += timedelta(days=1)
-            resolved[key] = dt
-            sched_prev = dt
+            utc = to_utc(dt, sched_prev_utc)
+            local[key], resolved[key] = dt, utc
+            sched_prev, sched_prev_utc = dt, utc
         # actual times are placed on the day nearest their scheduled counterpart, then nearest
         # the previous actual time when there is no scheduled time
         for key, field, sched_key in (
@@ -75,12 +104,13 @@ def parse_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
         ):
             t = _hhmm(loc.get(field))
             if t is None:
-                resolved[key] = None
+                local[key] = resolved[key] = None
                 continue
-            anchor = resolved[sched_key] or actual_prev or sched_prev
+            anchor = local[sched_key] or actual_prev or sched_prev
             dt = _nearest(t, anchor)
-            resolved[key] = dt
-            actual_prev = dt
+            utc = to_utc(dt, actual_prev_utc)
+            local[key], resolved[key] = dt, utc
+            actual_prev, actual_prev_utc = dt, utc
         rows.append(
             {
                 "rid": attrs["rid"],
@@ -98,8 +128,9 @@ def parse_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def to_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=COLUMNS)
-    for col in ("date_of_service", "sched_arr", "sched_dep", "actual_arr", "actual_dep"):
-        df[col] = pd.to_datetime(df[col]).astype("datetime64[ns]")
+    df["date_of_service"] = pd.to_datetime(df["date_of_service"]).astype("datetime64[ns]")
+    for col in ("sched_arr", "sched_dep", "actual_arr", "actual_dep"):
+        df[col] = pd.to_datetime(df[col], utc=True).astype("datetime64[ns, UTC]")
     df["seq"] = df["seq"].astype("int64")
     df["candidate_cancelled"] = df["candidate_cancelled"].astype(bool)
     return df
@@ -120,10 +151,10 @@ STOPS_SCHEMA = pa.DataFrameSchema(
         "toc_code": pa.Column(str, pa.Check.str_matches(r"^[A-Z0-9]{2}$"), nullable=False),
         "seq": pa.Column(int, pa.Check.ge(0), nullable=False),
         "location": pa.Column(str, pa.Check.str_matches(r"^[A-Z]{3}$"), nullable=False),
-        "sched_arr": pa.Column(pa.DateTime, nullable=True),
-        "sched_dep": pa.Column(pa.DateTime, nullable=True),
-        "actual_arr": pa.Column(pa.DateTime, nullable=True),
-        "actual_dep": pa.Column(pa.DateTime, nullable=True),
+        "sched_arr": pa.Column("datetime64[ns, UTC]", nullable=True),
+        "sched_dep": pa.Column("datetime64[ns, UTC]", nullable=True),
+        "actual_arr": pa.Column("datetime64[ns, UTC]", nullable=True),
+        "actual_dep": pa.Column("datetime64[ns, UTC]", nullable=True),
         "late_canc_reason": pa.Column(str, pa.Check.str_matches(r"^\d+$"), nullable=True),
         "candidate_cancelled": pa.Column(bool, nullable=False),
     },

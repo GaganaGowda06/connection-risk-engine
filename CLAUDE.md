@@ -26,6 +26,13 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Check: `tail logs/capture.log` and `ls -l data/raw/darwin/$(date -u +%F)/`
 - Anything older than the topic's retention is lost if the capture is down too long.
 
+## Running the HSP backfill
+- Start: `nohup ./scripts/run_backfill.sh 2026-04-15 > /dev/null 2>&1 &` (newest first, 30 day chunks)
+- Stop: `pkill -f run_backfill.sh; pkill -f "rail-risk ingest-hsp"`. Restart with the same command.
+- Check: `uv run rail-risk status` and `tail logs/backfill.log`
+- Finished windows are skipped on restart, so nothing is refetched. Exit 2 means retry later.
+- To extend further back, rerun with an older first date. Roughly 200 s per route-day.
+
 ## Stage plan
 1. Repo skeleton, config, logging, CLI, protection hook.
 2. Ingest Darwin and HSP data to data/raw.

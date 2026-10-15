@@ -1,6 +1,7 @@
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 import pandas as pd
@@ -15,12 +16,19 @@ from rail_risk.ingest.hsp import (
     Manifest,
     backfill,
     metrics_body,
+    rebuild_interim,
     rids_from_metrics,
 )
 from rail_risk.ingest.hsp_parse import parse_details, to_frame, validate
 
 FIX = Path(__file__).parent / "fixtures"
 ROUTE = Route(id="bhm-eus", origin="BHM", destination="EUS")
+
+
+def utc(local: str) -> datetime:
+    """UTC instant for a London wall clock time, computed independently of the parser."""
+    naive = datetime.fromisoformat(local)
+    return naive.replace(tzinfo=ZoneInfo("Europe/London")).astimezone(UTC)
 
 
 def load(name: str) -> dict:
@@ -58,9 +66,9 @@ def test_parse_real_service():
     first, last = rows[0], rows[-1]
     assert first["location"] == "BHM" and first["seq"] == 0
     assert first["sched_arr"] is None
-    assert first["sched_dep"] == pd.Timestamp("2026-10-01 07:06").to_pydatetime()
+    assert first["sched_dep"] == utc("2026-10-01 07:06")
     assert last["location"] == "EUS"
-    assert last["actual_arr"] == pd.Timestamp("2026-10-01 09:26").to_pydatetime()
+    assert last["actual_arr"] == utc("2026-10-01 09:26")
     assert last["candidate_cancelled"] is False
 
 
@@ -79,15 +87,46 @@ def test_midnight_rollover_scheduled_and_actual():
         ]
     )
     rows = parse_details(payload)
-    assert rows[1]["sched_arr"] == pd.Timestamp("2026-10-01 23:58").to_pydatetime()
-    assert rows[1]["actual_arr"] == pd.Timestamp("2026-10-02 00:03").to_pydatetime()
-    assert rows[2]["sched_arr"] == pd.Timestamp("2026-10-02 00:30").to_pydatetime()
-    assert rows[2]["actual_arr"] == pd.Timestamp("2026-10-02 00:41").to_pydatetime()
+    assert rows[1]["sched_arr"] == utc("2026-10-01 23:58")
+    assert rows[1]["actual_arr"] == utc("2026-10-02 00:03")
+    assert rows[2]["sched_arr"] == utc("2026-10-02 00:30")
+    assert rows[2]["actual_arr"] == utc("2026-10-02 00:41")
 
 
 def test_early_actual_before_midnight_stays_on_previous_day():
     rows = parse_details(details([loc("BHM", ptd="0002", atd="2359"), loc("EUS", pta="0100")]))
-    assert rows[0]["actual_dep"] == pd.Timestamp("2026-09-30 23:59").to_pydatetime()
+    assert rows[0]["actual_dep"] == utc("2026-09-30 23:59")
+
+
+def test_ambiguous_time_first_occurrence_by_default():
+    # 2026-10-25 01:30 happens twice; with nothing earlier in the service, take BST (00:30Z)
+    rows = parse_details(details([loc("BHM", ptd="0130", atd="0130"), loc("EUS", pta="0300")],
+                                 day="2026-10-25"))  # fmt: skip
+    assert rows[0]["sched_dep"] == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+    assert rows[0]["actual_dep"] == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+
+def test_ambiguous_time_second_occurrence_when_sequence_demands_it():
+    # 01:55 BST (00:55Z) then 01:05 on the same wall clock day can only be 01:05 GMT (01:05Z)
+    stops = [loc("BHM", ptd="0155"), loc("RUG", pta="0105", ptd="0106"), loc("EUS", pta="0230")]
+    rows = parse_details(details(stops, day="2026-10-25"))
+    assert rows[0]["sched_dep"] == datetime(2026, 10, 25, 0, 55, tzinfo=UTC)
+    assert rows[1]["sched_arr"] == datetime(2026, 10, 25, 1, 5, tzinfo=UTC)
+    assert rows[2]["sched_arr"] == datetime(2026, 10, 25, 2, 30, tzinfo=UTC)  # 02:30 GMT
+
+
+def test_nonexistent_time_shifts_forward_by_the_gap():
+    # 2026-03-29 01:30 does not exist; it is read with the pre-change offset: 01:30Z (02:30 BST)
+    rows = parse_details(
+        details([loc("BHM", ptd="0130"), loc("EUS", pta="0300")], day="2026-03-29")
+    )
+    assert rows[0]["sched_dep"] == datetime(2026, 3, 29, 1, 30, tzinfo=UTC)
+    assert rows[1]["sched_arr"] == datetime(2026, 3, 29, 2, 0, tzinfo=UTC)  # 03:00 BST
+
+
+def test_parsed_timestamps_are_utc_aware():
+    df = to_frame(parse_details(load("hsp_details_ontime.json")))
+    assert str(df["sched_dep"].dtype) == "datetime64[ns, UTC]"
 
 
 def test_candidate_cancelled_when_destination_has_no_actuals():
@@ -277,3 +316,70 @@ def test_crash_mid_window_resumes_from_raw_without_refetching(tmp_path):
     assert c.detail_calls == 3  # only the 3 missing details
     assert manifest.window_done("bhm-eus", day, 7)
     manifest.close()
+
+
+def test_one_rid_serves_two_routes_without_refetching(tmp_path):
+    metrics = load("hsp_metrics.json")
+    detail = load("hsp_details_ontime.json")
+    other = Route(id="ast-eus", origin="AST", destination="EUS", via_hub="BHM")
+    seen = []
+
+    def handler(request):
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        seen.append(endpoint)
+        if endpoint == "serviceMetrics":
+            return httpx.Response(200, json=metrics)
+        payload = json.loads(json.dumps(detail))
+        payload["serviceAttributesDetails"]["rid"] = json.loads(request.content)["rid"]
+        return httpx.Response(200, json=payload)
+
+    raw, interim = tmp_path / "raw", tmp_path / "interim"
+    day = date(2026, 10, 1)
+    manifest = Manifest(interim / "m.sqlite")
+    for route in (ROUTE, other):
+        backfill(route, day, day, range(7, 8), make_client(handler), manifest,
+                 raw_root=raw, interim_root=interim)  # fmt: skip
+    assert seen.count("serviceDetails") == 5  # fetched once, for the first route
+    assert seen.count("serviceMetrics") == 2
+    members = manifest.query("SELECT route, COUNT(*) FROM rid_routes GROUP BY route ORDER BY route")
+    assert members == [("ast-eus", 5), ("bhm-eus", 5)]
+    assert manifest.query("SELECT COUNT(*) FROM rids") == [(5,)]
+    manifest.close()
+
+
+def test_rebuild_from_raw_makes_no_calls_and_matches_rows(tmp_path):
+    metrics = load("hsp_metrics.json")
+    detail = load("hsp_details_ontime.json")
+
+    def handler(request):
+        if request.url.path.endswith("serviceMetrics"):
+            return httpx.Response(200, json=metrics)
+        payload = json.loads(json.dumps(detail))
+        payload["serviceAttributesDetails"]["rid"] = json.loads(request.content)["rid"]
+        return httpx.Response(200, json=payload)
+
+    raw, interim = tmp_path / "raw", tmp_path / "interim"
+    day = date(2026, 10, 1)
+    manifest = Manifest(interim / "m.sqlite")
+    c = backfill(ROUTE, day, day, range(7, 8), make_client(handler), manifest,
+                 raw_root=raw, interim_root=interim)  # fmt: skip
+    for parquet in interim.rglob("*.parquet"):
+        parquet.unlink()
+    rows, bad = rebuild_interim(manifest, raw, interim)
+    assert (rows, bad) == (c.rows, 0)
+    assert len(list((interim / "hsp_stops").rglob("*.parquet"))) == 1
+    manifest.close()
+
+
+def test_manifest_migrates_route_membership_from_old_rids_table(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "m.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE rids (rid TEXT PRIMARY KEY, route TEXT, day TEXT, hour INTEGER)")
+    con.execute("INSERT INTO rids VALUES ('202610018980803','bhm-eus','2026-10-01',7)")
+    con.commit()
+    con.close()
+    m = Manifest(db)
+    assert m.query("SELECT rid, route FROM rid_routes") == [("202610018980803", "bhm-eus")]
+    m.close()
