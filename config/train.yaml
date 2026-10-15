@@ -1,0 +1,27 @@
+# Training pipeline settings. Results are only reportable above min_train_days.
+min_train_days: 60
+seed: 20261015
+quantiles: [0.1, 0.5, 0.9]
+nominal_coverage: 0.8
+# with at least this many validation days, validation is split in two by date: the first half
+# tunes and early-stops, the second half calibrates (conformal offsets, band calibration)
+split_validation_min_days: 10
+num_threads: 2
+max_rounds: 400
+early_stopping_rounds: 30
+# 12 combinations, chosen by validation pinball loss. Strong regularisation on purpose.
+grid:
+  num_leaves: [4, 8, 16]
+  min_data_in_leaf: [20, 60]
+  learning_rate: [0.03, 0.1]
+  feature_fraction: [0.8]
+fixed:
+  lambda_l2: 10.0
+  max_depth: 5
+  bagging_fraction: 0.8
+  bagging_freq: 1
+band_model:
+  num_leaves: 4
+  min_data_in_leaf: 40
+  learning_rate: 0.05
+  feature_fraction: 0.8

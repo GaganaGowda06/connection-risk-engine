@@ -189,6 +189,63 @@ def _build_features(args: argparse.Namespace) -> int:
     return 0
 
 
+def _train(args: argparse.Namespace) -> int:
+    from rail_risk.evaluation import (
+        complete_days,
+        load_bands,
+        load_snapshots,
+        load_split_config,
+        make_split,
+    )
+    from rail_risk.models.pipeline import (
+        guard,
+        load_train_config,
+        log_to_mlflow,
+        run_training,
+        write_model_report,
+    )
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        cfg = load_train_config(args.config)
+        eval_cfg = load_split_config(args.split_file)
+        bands = load_bands(args.bands_file)
+        snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        routes = sorted(snaps["route_id"].unique())
+        days = complete_days(
+            settings.data_dir / "interim" / "hsp_manifest.sqlite", routes, eval_cfg.windows_per_day
+        )
+        split = make_split([d for d in days if d in set(snaps["service_date"])], eval_cfg)
+    except (ValueError, OSError) as exc:
+        log.error("train_invalid", error=str(exc))
+        return 1
+    tag = guard(len(split.train), cfg["min_train_days"])
+    result, fitted = run_training(snaps, split, bands, eval_cfg, cfg)
+    run_id = log_to_mlflow(
+        result,
+        fitted,
+        tracking_dir=Path("mlruns"),
+        tag=tag,
+        snapshot_path=settings.data_dir / "features" / "snapshots",
+        train_range=(split.train[0].isoformat(), split.train[-1].isoformat()),
+        seed=cfg["seed"],
+    )
+    if tag == "reportable":
+        write_model_report(result, args.report, run_id)
+    log.info(
+        "train_done",
+        run_id=run_id,
+        tag=tag,
+        train_days=len(split.train),
+        min_train_days=cfg["min_train_days"],
+        report=str(args.report) if tag == "reportable" else "not written (smoke run)",
+    )
+    return 0
+
+
 def _evaluate_baselines(args: argparse.Namespace) -> int:
     from rail_risk.evaluation import (
         complete_days,
@@ -261,6 +318,11 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--start", type=date.fromisoformat, default=None)
     bf.add_argument("--end", type=date.fromisoformat, default=None)
     bf.add_argument("--skip-darwin", action="store_true")
+    tr = sub.add_parser("train", help="fit quantile and band models, log to MLflow")
+    tr.add_argument("--config", type=Path, default=Path("config/train.yaml"))
+    tr.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    tr.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
+    tr.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
     ev = sub.add_parser("evaluate-baselines", help="score the baselines on validation and test")
     ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
@@ -276,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         return _parse_darwin(args)
     if args.command == "build-features":
         return _build_features(args)
+    if args.command == "train":
+        return _train(args)
     if args.command == "evaluate-baselines":
         return _evaluate_baselines(args)
     if args.command == "rebuild-hsp":
