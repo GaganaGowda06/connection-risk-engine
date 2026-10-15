@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 from rail_risk.evaluation import Bands, band_index
 from rail_risk.models.quantile import Design
@@ -109,6 +110,152 @@ def choose_calibrator(
     return chosen.fit(p, y), cv
 
 
+# threshold calibration: P(delay >= 15) and P(delay >= 30) on top of the calibrated band model
+
+THRESHOLDS = (15, 30)
+_CLIP = 1e-6
+
+
+def exceedance(p: np.ndarray, bands: Bands, minutes: int) -> np.ndarray:
+    """P(delay >= minutes) as the sum of the bands at or above that band edge."""
+    return p[:, bands.lower_edges.index(minutes) :].sum(axis=1)
+
+
+def rebuild_bands(e: dict[int, np.ndarray], bands: Bands) -> np.ndarray:
+    """Band probabilities from exceedances, kept monotone so every band is non-negative.
+
+    `e` maps each lower band edge above the first to P(delay >= edge). Each exceedance is capped
+    by the one before it, and the differences sum to 1 by construction.
+    """
+    edges = list(bands.lower_edges[1:])
+    capped: list[np.ndarray] = []
+    prev = np.ones_like(e[edges[0]])
+    for edge in edges:
+        cur = np.clip(np.minimum(e[edge], prev), 0.0, 1.0)
+        capped.append(cur)
+        prev = cur
+    cols = [1.0 - capped[0]]
+    cols += [capped[i] - capped[i + 1] for i in range(len(capped) - 1)]
+    cols.append(capped[-1])
+    return np.column_stack(cols)
+
+
+class _Platt:
+    """Logistic regression on the logit of the probability. Constant if one class only."""
+
+    name = "platt"
+
+    def fit(self, p: np.ndarray, y: np.ndarray) -> "_Platt":
+        self.constant: float | None = None
+        if len(np.unique(y)) < 2:
+            self.constant = (float(y.sum()) + 0.5) / (len(y) + 1.0)
+            return self
+        self.model = LogisticRegression(C=1e6, max_iter=1000).fit(self._logit(p), y)
+        return self
+
+    @staticmethod
+    def _logit(p: np.ndarray) -> np.ndarray:
+        q = np.clip(p, _CLIP, 1 - _CLIP)
+        return np.log(q / (1 - q)).reshape(-1, 1)
+
+    def predict(self, p: np.ndarray) -> np.ndarray:
+        if self.constant is not None:
+            return np.full(len(p), self.constant)
+        return self.model.predict_proba(self._logit(p))[:, 1]
+
+
+class _Isotonic:
+    name = "isotonic"
+
+    def fit(self, p: np.ndarray, y: np.ndarray) -> "_Isotonic":
+        self.model = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(p, y)
+        return self
+
+    def predict(self, p: np.ndarray) -> np.ndarray:
+        return self.model.predict(p)
+
+
+_METHODS = {"isotonic": _Isotonic, "platt": _Platt}
+
+
+def _binary_log_loss(p: np.ndarray, y: np.ndarray) -> float:
+    q = np.clip(p, _CLIP, 1 - _CLIP)
+    return float(-np.mean(y * np.log(q) + (1 - y) * np.log(1 - q)))
+
+
+@dataclass
+class ThresholdCalibration:
+    """Per-threshold calibrators for P(delay >= 15) and P(delay >= 30), then bands rebuilt."""
+
+    method: str
+    bands: Bands
+    maps: dict[int, Any]
+    tune_log_loss: dict[str, float]
+
+    def transform(self, p: np.ndarray) -> np.ndarray:
+        e = {t: exceedance(p, self.bands, t) for t in self.bands.lower_edges[1:]}
+        for t, cal in self.maps.items():
+            e[t] = cal.predict(e[t])
+        return normalise_rows(rebuild_bands(e, self.bands))
+
+
+def fit_threshold_calibration(
+    p_cal: np.ndarray,
+    y_cal: np.ndarray,
+    p_tune: np.ndarray,
+    y_tune: np.ndarray,
+    dates_cal: np.ndarray,
+    bands: Bands,
+    same: bool,
+) -> ThresholdCalibration:
+    """Fit isotonic and Platt on the calibrate half, choose by tuning-half log loss.
+
+    `y_*` are band indices. Log loss is summed over the two thresholds. When validation was not
+    split (`same`), the choice is cross-validated over whole service dates of the one block
+    instead, so a method is never scored on the rows it was fitted on.
+    """
+    obs = {t: (y_cal >= bands.lower_edges.index(t)).astype(float) for t in THRESHOLDS}
+    obs_tune = {t: (y_tune >= bands.lower_edges.index(t)).astype(float) for t in THRESHOLDS}
+    e_cal = {t: exceedance(p_cal, bands, t) for t in THRESHOLDS}
+    e_tune = {t: exceedance(p_tune, bands, t) for t in THRESHOLDS}
+
+    def fit_all(name: str, rows: np.ndarray | None = None) -> dict[int, Any]:
+        sel = slice(None) if rows is None else rows
+        return {t: _METHODS[name]().fit(e_cal[t][sel], obs[t][sel]) for t in THRESHOLDS}
+
+    scores: dict[str, float] = {}
+    if same:
+        unique = np.unique(dates_cal)
+        folds = min(5, len(unique))
+        fold_of = np.zeros(len(dates_cal), dtype=int)
+        if folds >= 2:
+            assignment = {d: i % folds for i, d in enumerate(unique)}
+            fold_of = np.array([assignment[d] for d in dates_cal])
+        for name in _METHODS:
+            losses = []
+            for f in range(folds if folds >= 2 else 0):
+                held, rest = fold_of == f, fold_of != f
+                if not held.any() or not rest.any():
+                    continue
+                maps = fit_all(name, rest)
+                losses.append(
+                    sum(_binary_log_loss(maps[t].predict(e_cal[t][held]), obs[t][held])
+                        for t in THRESHOLDS)
+                )  # fmt: skip
+            scores[name] = float(np.mean(losses)) if losses else float("nan")
+        scores["none"] = float(sum(_binary_log_loss(e_cal[t], obs[t]) for t in THRESHOLDS))
+    else:
+        for name in _METHODS:
+            maps = fit_all(name)
+            scores[name] = float(
+                sum(_binary_log_loss(maps[t].predict(e_tune[t]), obs_tune[t]) for t in THRESHOLDS)
+            )
+        scores["none"] = float(sum(_binary_log_loss(e_tune[t], obs_tune[t]) for t in THRESHOLDS))
+    usable = {k: v for k, v in scores.items() if k in _METHODS and not np.isnan(v)}
+    chosen = min(usable, key=usable.get) if usable else "platt"  # two parameters, safest default
+    return ThresholdCalibration(chosen, bands, fit_all(chosen), scores)
+
+
 @dataclass
 class BandFit:
     design: Design
@@ -117,13 +264,19 @@ class BandFit:
     calibrator: Any
     cv_log_loss: dict[str, float]
     best_iteration: int
+    threshold: ThresholdCalibration | None = None
 
     def predict_raw(self, df: pd.DataFrame) -> np.ndarray:
         raw = self.booster.predict(self.design.transform(df), num_iteration=self.best_iteration)
         return normalise_rows(np.asarray(raw))
 
-    def predict(self, df: pd.DataFrame) -> np.ndarray:
+    def predict_pre_threshold(self, df: pd.DataFrame) -> np.ndarray:
+        """Band probabilities after band calibration, before the threshold recalibration."""
         return normalise_rows(self.calibrator.transform(self.predict_raw(df)))
+
+    def predict(self, df: pd.DataFrame) -> np.ndarray:
+        p = self.predict_pre_threshold(df)
+        return p if self.threshold is None else self.threshold.transform(p)
 
 
 def fit_bands(
@@ -168,4 +321,16 @@ def fit_bands(
     dates = calibrate["service_date"].to_numpy()
     calibrator, cv = choose_calibrator(p_cal, y_cal, dates)
     shell.calibrator, shell.cv_log_loss = calibrator, cv
+    # threshold recalibration: fitted on the calibrate half, chosen on the tune half
+    p_after = shell.predict_pre_threshold(calibrate)
+    p_tune = shell.predict_pre_threshold(tune)
+    shell.threshold = fit_threshold_calibration(
+        p_after,
+        y_cal,
+        p_tune,
+        band_index(tune["label_delay_min"].to_numpy(dtype=float), bands),
+        dates,
+        bands,
+        same=tune is calibrate,
+    )
     return shell

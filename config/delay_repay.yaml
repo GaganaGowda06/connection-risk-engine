@@ -1,0 +1,30 @@
+# Delay Repay rules by TOC code, taken only from each operator's own published page.
+# A TOC is "verified" only when its tiers were read from that page on the checked date. An
+# "unverified" TOC has no tiers on purpose and cannot be used to price a payout.
+# Tiers cover [from_min, to_min) minutes late at the final destination, are contiguous and
+# ascending, and the last tier has no upper bound. single and return are the share of the
+# ticket price paid. A return share applies to the price of the return ticket.
+operators:
+  VT:
+    name: Avanti West Coast
+    status: verified
+    source_url: https://www.avantiwestcoast.co.uk/help-and-support/delay-repay
+    checked: 2026-10-15
+    page_last_updated: 2026-07-21
+    claim_window_days: 28
+    measured_at: final destination arrival against scheduled arrival
+    tiers:
+      - {from_min: 15, to_min: 30, single: 0.25, return: 0.125}
+      - {from_min: 30, to_min: 60, single: 0.50, return: 0.25}
+      - {from_min: 60, to_min: 120, single: 1.00, return: 0.50}
+      - {from_min: 120, to_min: null, single: 1.00, return: 1.00}
+  LM:
+    name: West Midlands Railway
+    status: unverified
+    source_url: https://www.westmidlandsrailway.co.uk/delay-repay
+    checked: 2026-10-15
+    note: >-
+      The page answered HTTP 403 with a JavaScript security check, so no tiers could be read.
+      The LM code also covers London Northwestern Railway services, which run BHM to EUS, and
+      that operator's page was not checked.
+    tiers: []

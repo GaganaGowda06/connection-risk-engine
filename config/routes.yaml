@@ -2,6 +2,9 @@ routes:
   - id: bhm-eus
     origin: BHM
     destination: EUS
+  - id: ast-bhm
+    origin: AST
+    destination: BHM
   - id: bhm-man
     origin: BHM
     destination: MAN

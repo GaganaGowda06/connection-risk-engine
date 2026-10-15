@@ -13,6 +13,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Build features: `uv run rail-risk build-features [--start D --end D]` (parses Darwin first)
 - Baselines: `uv run rail-risk evaluate-baselines` (writes reports/baselines.json and .md)
 - Train: `uv run rail-risk train` (smoke below `min_train_days`, logs to mlruns/mlflow.db, MLflow sqlite backend)
+- Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
 ## Committing
@@ -35,6 +36,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 ## Running the HSP backfill
 - Start: `nohup ./scripts/run_backfill.sh 2026-04-15 > /dev/null 2>&1 &` (newest first, 30 day chunks)
 - Stop: `pkill -f run_backfill.sh; pkill -f "rail-risk ingest-hsp"`. Restart with the same command.
+- Order is `ROUTES` in the script: bhm-eus, ast-bhm, bhm-man. Override with `ROUTES="..."`.
 - Check: `uv run rail-risk status` and `tail logs/backfill.log`
 - Finished windows are skipped on restart, so nothing is refetched. Exit 2 means retry later.
 - To extend further back, rerun with an older first date. Roughly 200 s per route-day.

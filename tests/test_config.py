@@ -56,7 +56,7 @@ def test_non_mapping_yaml(tmp_path, text):
 
 def test_shipped_routes_load():
     routes = load_routes(Path(__file__).parent.parent / "config" / "routes.yaml")
-    assert [r.id for r in routes.routes] == ["bhm-eus", "bhm-man", "ast-eus-via-bhm"]
+    assert [r.id for r in routes.routes] == ["bhm-eus", "ast-bhm", "bhm-man", "ast-eus-via-bhm"]
 
 
 def test_secrets_masked_in_repr():
