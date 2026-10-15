@@ -229,6 +229,37 @@ def score(
     return out
 
 
+def coverage_by_band(
+    dates: np.ndarray,
+    y: np.ndarray,
+    pred: Predictions,
+    bands: Bands,
+    *,
+    resamples: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> dict[str, dict[str, float | None]]:
+    """Interval coverage among rows whose true delay falls in each band.
+
+    A model can reach nominal coverage overall and still miss the late trains, which are few.
+    """
+    if pred.lo is None or pred.hi is None:
+        return {}
+    which = band_index(y, bands)
+    out: dict[str, dict[str, float | None]] = {}
+    for k, label in enumerate(bands.labels):
+        mask = which == k
+        if not mask.any():
+            out[label] = {"value": None, "ci_low": None, "ci_high": None, "n": 0.0}
+            continue
+        sub = Predictions(pred.point[mask], pred.lo[mask], pred.hi[mask])
+        r = score(
+            dates[mask], y[mask], sub, bands, resamples=resamples, seed=seed, confidence=confidence
+        )["coverage"]
+        out[label] = {**r, "n": float(mask.sum())}
+    return out
+
+
 # baselines
 
 
@@ -245,6 +276,31 @@ def persistence_baseline(df: pd.DataFrame, bands: Bands) -> Predictions:
     """
     point = df["last_stop_lateness_min"].fillna(0.0).to_numpy(dtype=float)
     return Predictions(point, probs=one_hot(band_index(point, bands), bands.k))
+
+
+@dataclass
+class PersistenceIntervalBaseline:
+    """Persistence point, with the 10th and 90th percentile of training residuals per horizon."""
+
+    bands: Bands
+    q_lo: dict[int, float] = field(default_factory=dict)
+    q_hi: dict[int, float] = field(default_factory=dict)
+
+    def fit(self, train: pd.DataFrame) -> "PersistenceIntervalBaseline":
+        df = train[train["label_delay_min"].notna()]
+        for horizon, g in df.groupby("horizon_min"):
+            resid = g["label_delay_min"] - g["last_stop_lateness_min"].fillna(0.0)
+            self.q_lo[int(horizon)], self.q_hi[int(horizon)] = (
+                float(x) for x in np.quantile(resid, [0.1, 0.9])
+            )
+        return self
+
+    def predict(self, df: pd.DataFrame) -> Predictions:
+        base = persistence_baseline(df, self.bands)
+        h = df["horizon_min"].to_numpy()
+        lo = base.point + np.array([self.q_lo[int(x)] for x in h])
+        hi = base.point + np.array([self.q_hi[int(x)] for x in h])
+        return Predictions(base.point, lo, hi, base.probs)
 
 
 @dataclass
@@ -351,6 +407,7 @@ def evaluate(
     scored = df[df["label_delay_min"].notna()]
     train = scored[scored["block"] == "train"]  # the only rows any baseline is fitted on
     fitted = HistoricalBaseline(bands).fit(train)
+    persistence_interval = PersistenceIntervalBaseline(bands).fit(train)
 
     results: dict[str, Any] = {}
     for name in ("timetable", "persistence", "historical"):
@@ -362,18 +419,15 @@ def evaluate(
                 if name == "timetable":
                     pred = timetable_baseline(h, bands)
                 elif name == "persistence":
-                    pred = persistence_baseline(h, bands)
+                    pred = persistence_interval.predict(h)
                 else:
                     pred = fitted.predict(h)
-                results[name][block][str(horizon)] = score(
-                    h["service_date"].to_numpy(),
-                    h["label_delay_min"].to_numpy(dtype=float),
-                    pred,
-                    bands,
-                    resamples=cfg.resamples,
-                    seed=cfg.seed,
-                    confidence=cfg.confidence,
-                )
+                dates = h["service_date"].to_numpy()
+                y = h["label_delay_min"].to_numpy(dtype=float)
+                kw = {"resamples": cfg.resamples, "seed": cfg.seed, "confidence": cfg.confidence}
+                cell = score(dates, y, pred, bands, **kw)
+                cell["coverage_by_band"] = coverage_by_band(dates, y, pred, bands, **kw)
+                results[name][block][str(horizon)] = cell
     counts = {
         block: {
             str(h): int(n)
@@ -431,7 +485,8 @@ def write_reports(result: dict[str, Any], out_dir: Path) -> None:
         "provisional until the per-operator rules are checked in Stage 5. Timetable and "
         "persistence give a hard band with probability 1, so their log loss is dominated by "
         f"the {LOG_LOSS_EPS:g} clip. The historical band frequencies are smoothed by half a count "
-        "per band. Only the historical baseline has an interval.",
+        "per band. The timetable has no interval. The persistence interval is its point plus the "
+        "10th and 90th percentile of training residuals per horizon.",
         "",
     ]
     names = {"timetable": "Timetable", "persistence": "Persistence", "historical": "Historical"}

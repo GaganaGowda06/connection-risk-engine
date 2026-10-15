@@ -87,3 +87,46 @@ def test_ingest_hsp_passes_newest_first_and_exit_codes(monkeypatch):
     assert (
         main(["ingest-hsp", "--route", "nope", "--start", "2026-09-01", "--end", "2026-09-02"]) == 1
     )
+
+
+@pytest.mark.parametrize(("min_days", "expect_report"), [(60, False), (3, True)])
+def test_train_guard_blocks_the_report_below_the_threshold(
+    monkeypatch, tmp_path, capsys, min_days, expect_report
+):
+    from datetime import date, timedelta
+
+    import pandas as pd
+
+    import rail_risk.evaluation as ev
+    import rail_risk.models.pipeline as pipe
+
+    days = [date(2026, 9, 1) + timedelta(days=i) for i in range(20)]
+    snaps = pd.DataFrame({"route_id": "r1", "service_date": days})
+    monkeypatch.setattr(ev, "load_snapshots", lambda path: snaps)
+    monkeypatch.setattr(ev, "complete_days", lambda *a, **k: days)
+    seen = {}
+    monkeypatch.setattr(pipe, "run_training", lambda *a, **k: ({"train_days": 4}, object()))
+
+    def fake_log(result, fitted, **kw):
+        seen["tag"] = kw["tag"]
+        return "run123"
+
+    monkeypatch.setattr(pipe, "log_to_mlflow", fake_log)
+    written = []
+    monkeypatch.setattr(pipe, "write_model_report", lambda r, path, run_id: written.append(path))
+    cfg = tmp_path / "train.yaml"
+    cfg.write_text(f"min_train_days: {min_days}\nseed: 1\n")
+    root = Path(__file__).parent.parent / "config"
+    code = main(
+        [
+            "train",
+            "--config", str(cfg),
+            "--split-file", str(root / "split.yaml"),
+            "--bands-file", str(root / "delay_bands.yaml"),
+            "--report", str(tmp_path / "model_results.md"),
+        ]
+    )  # fmt: skip
+    assert code == 0
+    assert seen["tag"] == ("reportable" if expect_report else "smoke")
+    assert bool(written) is expect_report
+    assert "run123" in capsys.readouterr().out

@@ -7,13 +7,17 @@ requires-python = ">=3.12"
 dependencies = [
     "confluent-kafka>=2.16.0",
     "httpx>=0.28.1",
+    "lightgbm>=4.7.0",
+    "mlflow>=3",
     "pandas>=3.0.6",
     "pandera>=0.34.1",
-    "pyarrow>=26.0.0",
+    "pyarrow<26",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.15.0",
     "pyspark>=4.2.0",
     "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
     "structlog>=26.1.0",
     "tenacity>=9.2.1",
 ]

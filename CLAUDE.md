@@ -12,6 +12,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
   JAVA_HOME to `/opt/homebrew/opt/openjdk@17` when it is unset. CI uses Temurin 17.
 - Build features: `uv run rail-risk build-features [--start D --end D]` (parses Darwin first)
 - Baselines: `uv run rail-risk evaluate-baselines` (writes reports/baselines.json and .md)
+- Train: `uv run rail-risk train` (smoke below `min_train_days`, logs to mlruns/, MLflow file store)
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
 ## Committing
