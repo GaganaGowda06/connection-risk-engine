@@ -37,10 +37,10 @@ def features(spark):
 
 def make_service(
     tmp_path, features, bundle_pair, *, events=None, toc="VT", newest="10:43", rules=None,
-    fallback=False, baseline=True, now=NOW,
+    fallback=False, baseline=True, now=NOW, warm=True,
 ):  # fmt: skip
     bundle, base = bundle_pair
-    return RiskService(
+    service = RiskService(
         store=make_store(tmp_path, events if events is not None else events_for(), toc, newest),
         features=features,
         routes=load_routes("config/routes.yaml").routes,
@@ -53,6 +53,9 @@ def make_service(
         route_model_trained_on={"bhm-eus"},
         now=lambda: now,
     )
+    if warm:  # what the background refresher does, so a request reads the feature cache
+        service.refresh_features()
+    return service
 
 
 def client_for(service, **kw):
@@ -84,6 +87,17 @@ def test_happy_path_returns_ranges_probabilities_and_payout(tmp_path, features, 
         assert dq["live_data_age_minutes"] == 2.0 and dq["schedule_known"] is True
         assert dq["horizon_snapped_from_minutes"] == 45.0  # the model has fixed horizons
         assert body["request_id"] == r.headers["x-request-id"]
+
+
+def test_cache_miss_builds_features_on_demand_with_the_same_answer(tmp_path, features, bundle_pair):
+    warm = make_service(tmp_path, features, bundle_pair)
+    cold = make_service(tmp_path, features, bundle_pair, warm=False)
+    with client_for(warm) as a, client_for(cold, budget_seconds=120) as b:
+        x, y = post(a, fare=50).json(), post(b, fare=50).json()
+        for key in ("arrival_range_80", "p_delay_at_least_15", "median_delay_minutes"):
+            assert x[key] == y[key]
+        assert x["data_quality"]["features_age_seconds"] >= 0.0  # read from the cache
+        assert y["data_quality"]["features_age_seconds"] == 0.0  # built for this request
 
 
 def test_no_fare_gives_no_amount_with_a_reason(tmp_path, features, bundle_pair):
