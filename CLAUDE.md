@@ -8,6 +8,9 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Test: `uv run pytest`
 - Lint: `uv run ruff check . && uv run ruff format --check .`
 - Run: `uv run rail-risk check`
+- Java: PySpark 4.2 needs JDK 17. `brew install openjdk@17`; `src/rail_risk/spark.py` sets
+  JAVA_HOME to `/opt/homebrew/opt/openjdk@17` when it is unset. CI uses Temurin 17.
+- Build features: `uv run rail-risk build-features [--start D --end D]` (parses Darwin first)
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
 ## Committing
