@@ -153,6 +153,41 @@ def _parse_darwin(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_features(args: argparse.Namespace) -> int:
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        if args.start and args.end and args.end < args.start:
+            raise ValueError("--end must not be before --start")
+    except ValueError as exc:
+        log.error("config_invalid", error=str(exc))
+        return 1
+    if not args.skip_darwin:
+        rc = _parse_darwin(argparse.Namespace(date=None))
+        if rc:
+            return rc
+    from rail_risk.features.build import build
+    from rail_risk.spark import build_spark
+
+    spark = build_spark()
+    stats = build(
+        spark,
+        settings.data_dir / "interim",
+        settings.data_dir / "features",
+        settings.routes_file,
+        args.start,
+        args.end,
+    )
+    print(
+        f"rows={stats.rows} per_horizon={stats.rows_per_horizon} "
+        f"label_null_rate={stats.label_null_rate:.3f} seconds={stats.seconds:.0f} "
+        f"peak_mb={stats.peak_mb:.0f}"
+    )
+    return 0
+
+
 def _status() -> int:
     from rail_risk.status import darwin_status, hsp_status
 
@@ -182,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--newest-first", action="store_true")
     pd_ = sub.add_parser("parse-darwin", help="parse closed Darwin hourly files into Parquet")
     pd_.add_argument("--date", type=date.fromisoformat, default=None)
+    bf = sub.add_parser("build-features", help="parse Darwin, then build feature snapshots")
+    bf.add_argument("--start", type=date.fromisoformat, default=None)
+    bf.add_argument("--end", type=date.fromisoformat, default=None)
+    bf.add_argument("--skip-darwin", action="store_true")
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -191,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         return _ingest_hsp(args)
     if args.command == "parse-darwin":
         return _parse_darwin(args)
+    if args.command == "build-features":
+        return _build_features(args)
     if args.command == "rebuild-hsp":
         return _rebuild_hsp(args)
     if args.command == "status":

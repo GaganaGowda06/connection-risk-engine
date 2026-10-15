@@ -228,7 +228,11 @@ def rids_from_metrics(payload: dict[str, Any]) -> list[str]:
 
 def _write_parquet(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
+    if "late_canc_reason" in df:  # keep the type stable when a window has no reason codes
+        df = df.astype({"late_canc_reason": "string"})
+    tmp = path.with_suffix(".parquet.tmp")  # readers never see a half-written file
+    df.to_parquet(tmp, index=False)
+    tmp.replace(path)
 
 
 def run_window(
