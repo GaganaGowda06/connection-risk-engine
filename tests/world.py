@@ -6,82 +6,18 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from rail_risk.evaluation import Bands, HistoricalBaseline, SplitConfig, make_split
-from rail_risk.features.snapshots import FEATURE_COLUMNS
+from rail_risk import fixtures
 from rail_risk.live import LiveStore
-from rail_risk.models.bundle import ModelBundle
-from rail_risk.models.pipeline import fit_all
 
-BANDS = Bands((0, 15, 30, 60, 120), provisional=True)
+BANDS = fixtures.BANDS
 TODAY = date(2026, 10, 15)
 RID = "202610150000001"
 TIPLOCS = {"BHAMNWS": "BHM", "EUSTON": "EUS", "ASTON": "AST", "MNCRPIC": "MAN"}
-CFG = {
-    "quantiles": [0.1, 0.5, 0.9],
-    "nominal_coverage": 0.8,
-    "split_validation_min_days": 10,
-    "seed": 11,
-    "num_threads": 1,
-    "max_rounds": 60,
-    "early_stopping_rounds": 10,
-    "grid": {
-        "num_leaves": [4],
-        "min_data_in_leaf": [20],
-        "learning_rate": [0.1],
-        "feature_fraction": [0.8],
-    },
-    "fixed": {"lambda_l2": 10.0, "max_depth": 5, "bagging_fraction": 0.8, "bagging_freq": 1},
-    "band_model": {
-        "num_leaves": 4,
-        "min_data_in_leaf": 20,
-        "learning_rate": 0.1,
-        "feature_fraction": 0.8,
-    },  # fmt: skip
-}
-
-
-def snapshots(days: int = 26, per_day: int = 24, seed: int = 4) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    rows = []
-    start = date(2026, 8, 1)
-    for i in range(days):
-        d = start + timedelta(days=i)
-        for k in range(per_day):
-            base = rng.gamma(2.0, 3.0)
-            for h in (120, 60, 15):
-                row = {c: float(rng.normal()) for c in FEATURE_COLUMNS}
-                row.update(
-                    {
-                        "rid": f"{d:%Y%m%d}{k:07d}",
-                        "route_id": "bhm-eus",
-                        "service_date": d,
-                        "horizon_min": h,
-                        "toc_code": "VT" if k % 2 else "LM",
-                        "dest_hour": 9 + k % 3,
-                        "is_bank_holiday": False,
-                        "last_stop_lateness_min": None if h == 120 else base * 0.7,
-                        "hist_median_28d": None if i < 2 else 3.0,
-                        "label_delay_min": base,
-                        "is_candidate_cancelled": False,
-                    }
-                )
-                rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def build_bundle() -> tuple[ModelBundle, HistoricalBaseline]:
-    df = snapshots()
-    cfg = SplitConfig(7, 7, 1, 16, 50, 1, 0.95)
-    split = make_split(sorted(df["service_date"].unique()), cfg)
-    block = {d: n for n, days in split.blocks().items() for d in days}
-    df = df[df["service_date"].isin(block)].assign(block=lambda x: x["service_date"].map(block))
-    train, valid = df[df["block"] == "train"], df[df["block"] == "validation"]
-    fitted = fit_all(train, valid, BANDS, CFG)
-    bundle = ModelBundle(fitted.quantile, fitted.bands, BANDS, meta={"git_commit": "test"})
-    return bundle, fitted.baseline
+CFG = fixtures.CFG
+snapshots = fixtures.snapshots
+build_bundle = fixtures.build_bundle
 
 
 def ts(hhmm: str, day: date = TODAY) -> pd.Timestamp:

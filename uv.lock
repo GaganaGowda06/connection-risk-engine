@@ -2581,7 +2581,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "scikit-learn" },
     { name = "scipy" },
-    { name = "streamlit" },
     { name = "structlog" },
     { name = "tenacity" },
     { name = "uvicorn" },
@@ -2592,6 +2591,10 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
+]
+ui = [
+    { name = "httpx" },
+    { name = "streamlit" },
 ]
 
 [package.metadata]
@@ -2610,7 +2613,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
     { name = "scipy", specifier = ">=1.18.1" },
-    { name = "streamlit", specifier = ">=1.66.0" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tenacity", specifier = ">=9.2.1" },
     { name = "uvicorn", specifier = ">=0.30" },
@@ -2621,6 +2623,10 @@ dev = [
     { name = "pre-commit", specifier = ">=4.7.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.17.0" },
+]
+ui = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "streamlit", specifier = ">=1.66.0" },
 ]
 
 [[package]]

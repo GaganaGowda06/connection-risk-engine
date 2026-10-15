@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-10-15T19:58:12+00:00",
+  "window": {
+    "live_from": "2026-10-14",
+    "live_to": "2026-10-15",
+    "minutes": 60,
+    "days_requested": 7,
+    "caveat": "Darwin capture started on 2026-10-15, so the live window holds fewer than 7 days of services. Daily and weekly patterns in the live sample are partial, and PSI on a short window is noisy."
+  },
+  "train_rows": 6027,
+  "live_rows": 53,
+  "thresholds": {
+    "watch": 0.1,
+    "act": 0.25
+  },
+  "features": [
+    {
+      "feature": "day_of_week",
+      "psi": 8.099130900372083,
+      "kind": "numeric",
+      "bins": 6,
+      "train_missing": 0.0,
+      "live_missing": 0.0,
+      "status": "act"
+    },
+    {
+      "feature": "hist_n_28d",
+      "psi": 4.552718033526798,
+      "kind": "numeric",
+      "bins": 10,
+      "train_missing": 0.0,
+      "live_missing": 0.0,
+      "status": "act"
+    },
+    {
+      "feature": "hist_median_28d",
+      "psi": 4.461124771831252,
+      "kind": "numeric",
+      "bins": 8,
+      "train_missing": 0.012278081964493114,
+      "live_missing": 0.0,
+      "status": "act"
+    },
+    {
+      "feature": "hist_p80_28d",
+      "psi": 4.069817288114465,
+      "kind": "numeric",
+      "bins": 10,
+      "train_missing": 0.012278081964493114,
+      "live_missing": 0.0,
+      "status": "act"
+    },
+    {
+      "feature": "toc_code",
+      "psi": 1.368428427784948,
+      "kind": "categorical",
+      "bins": 3,
+      "train_missing": 0.0,
+      "live_missing": 0.16981132075471697,
+      "status": "act"
+    },
+    {
+      "feature": "last_stop_lateness_min",
+      "psi": 0.3522591167703622,
+      "kind": "numeric",
+      "bins": 8,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "act"
+    },
+    {
+      "feature": "n_stops_passed",
+      "psi": 0.3514627131059104,
+      "kind": "numeric",
+      "bins": 8,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "act"
+    },
+    {
+      "feature": "stops_remaining",
+      "psi": 0.33927133599715825,
+      "kind": "numeric",
+      "bins": 6,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "act"
+    },
+    {
+      "feature": "hour_of_day",
+      "psi": 0.29860274801047443,
+      "kind": "numeric",
+      "bins": 10,
+      "train_missing": 0.0,
+      "live_missing": 0.0,
+      "status": "act"
+    },
+    {
+      "feature": "sched_minutes_remaining",
+      "psi": 0.2680296004158293,
+      "kind": "numeric",
+      "bins": 8,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "act"
+    },
+    {
+      "feature": "last_stop_seq",
+      "psi": 0.23778657565767194,
+      "kind": "numeric",
+      "bins": 8,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "watch"
+    },
+    {
+      "feature": "dest_hour",
+      "psi": 0.21489516816508916,
+      "kind": "numeric",
+      "bins": 10,
+      "train_missing": 0.0,
+      "live_missing": 0.0,
+      "status": "watch"
+    },
+    {
+      "feature": "minutes_since_last_stop",
+      "psi": 0.20842188379638363,
+      "kind": "numeric",
+      "bins": 9,
+      "train_missing": 0.022896963663514187,
+      "live_missing": 0.018867924528301886,
+      "status": "watch"
+    },
+    {
+      "feature": "lateness_change_last_2",
+      "psi": 0.1816008699232759,
+      "kind": "numeric",
+      "bins": 7,
+      "train_missing": 0.06570433051269288,
+      "live_missing": 0.018867924528301886,
+      "status": "watch"
+    },
+    {
+      "feature": "is_bank_holiday",
+      "psi": 0.0,
+      "kind": "numeric",
+      "bins": 1,
+      "train_missing": 0.0,
+      "live_missing": 0.0,
+      "status": "ok"
+    }
+  ],
+  "skipped": [],
+  "summary": {
+    "ok": 1,
+    "watch": 4,
+    "act": 10
+  }
+}

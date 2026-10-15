@@ -20,7 +20,15 @@ from pyspark.sql import DataFrame, SparkSession, Window
 HORIZONS = (120, 60, 15)
 HISTORY_DAYS = 28
 
-BANK_HOLIDAYS_FILE = Path(__file__).resolve().parents[3] / "config" / "bank_holidays.json"
+
+def _bank_holidays_file() -> Path:
+    """config/bank_holidays.json in the repo checkout, or under the working directory when the
+    package is installed (as in the container, which has /app/config)."""
+    in_repo = Path(__file__).resolve().parents[3] / "config" / "bank_holidays.json"
+    return in_repo if in_repo.exists() else Path("config") / "bank_holidays.json"
+
+
+BANK_HOLIDAYS_FILE = _bank_holidays_file()
 
 
 def load_bank_holidays(path: Path = BANK_HOLIDAYS_FILE) -> tuple[str, ...]:

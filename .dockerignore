@@ -1,0 +1,22 @@
+# secrets and local state never enter the build context
+.env
+.env.*
+!.env.example
+data/
+mlruns/
+logs/
+reports/
+docs/
+.git/
+.github/
+.venv/
+.claude/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+infra/
+tests/
+*.log
+nohup.out

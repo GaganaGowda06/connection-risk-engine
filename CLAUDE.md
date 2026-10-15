@@ -21,6 +21,10 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - UI: start `rail-risk serve`, then `uv run rail-risk ui` (Streamlit on localhost:8501, calls the API at `RAIL_API_URL`, default http://127.0.0.1:8000)
 - Bench: `uv run python scripts/bench_api.py` (p50 and p95 against a running API; never part of CI)
 - Tip: run `rail-risk parse-darwin` before `serve`; unparsed closed hours are parsed at startup and add about 8 s
+- Docker: `docker compose up --build api ui` (API on 127.0.0.1:8000, page on 127.0.0.1:8501; data/ and mlruns/ mounted read-only; needs Colima or Docker). The capture service is a profile and must not run beside a host capture.
+  - Images: `docker build --target api -t rail-risk-api .` and `--target ui`. The API image carries a jlinked Java 17 runtime for Spark; no secret is ever in an image.
+- Terraform (plan only, no AWS account): `cd infra && terraform init -backend=false && terraform validate`; offline plan steps are in infra/README.md
+- Drift: `uv run rail-risk drift` (PSI of live Darwin serving features against training; writes reports/drift.json and drift.md; 0.1 watch, 0.25 act)
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
