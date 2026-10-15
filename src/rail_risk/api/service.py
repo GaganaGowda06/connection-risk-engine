@@ -28,6 +28,15 @@ class NotFound(LookupError):
     """The rid is unknown or does not call at a configured route."""
 
 
+class Warming(Exception):
+    """Features for this service are not cached yet; they have been queued to build next."""
+
+    def __init__(self, rid: str, retry_after: int = 2) -> None:
+        super().__init__(f"features for {rid} are being built")
+        self.rid = rid
+        self.retry_after = retry_after
+
+
 def clock(ts: pd.Timestamp | datetime) -> str:
     return pd.Timestamp(ts).tz_convert(LONDON).strftime("%H:%M")
 
@@ -55,6 +64,10 @@ class RiskService:
     now: Any = lambda: datetime.now(UTC)  # noqa: E731 - replaced in tests
     _cache: dict[str, Cached] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _queue: list[str] = field(default_factory=list)  # rids to build first, front of line
+    _services: list[dict[str, Any]] = field(default_factory=list)
+    _failed: dict[str, float] = field(default_factory=dict)  # rid -> when a build gave nothing
+    _memo: dict[Any, Any] | None = None  # prepared tables during one refresh
 
     # live state
 
@@ -78,6 +91,23 @@ class RiskService:
         return sorted(set(arr["rid"]))
 
     def _prepare(self, rid: str, route: str | None, strip_live: bool):
+        key = (rid, route, strip_live)
+        if self._memo is not None and key in self._memo:
+            hit = self._memo[key]
+            if isinstance(hit, NotFound):
+                raise hit
+            return hit
+        try:
+            result = self._prepare_uncached(rid, route, strip_live)
+        except NotFound as exc:
+            if self._memo is not None:
+                self._memo[key] = exc
+            raise
+        if self._memo is not None:
+            self._memo[key] = result
+        return result
+
+    def _prepare_uncached(self, rid: str, route: str | None, strip_live: bool):
         table = self.store.stop_table(rid)
         if table.empty:
             raise NotFound("no stops known for that service")
@@ -94,11 +124,20 @@ class RiskService:
         delta = (sched_arr - pd.Timestamp(self.now())).total_seconds() / 60.0
         return int(round(delta))
 
-    def refresh_features(self) -> int:
-        """Recompute features for every active service in one batch. Returns how many."""
-        stale = self.is_stale()
+    def queue_front(self, rid: str) -> None:
+        """Put a rid at the front of the refresher queue (once)."""
+        with self._lock:
+            if rid not in self._queue:
+                self._queue.insert(0, rid)
+
+    def _drain_queue(self) -> list[str]:
+        with self._lock:
+            queued, self._queue = self._queue, []
+        return queued
+
+    def _compute(self, rids: list[str], stale: bool) -> int:
         batch = {}
-        for rid in self.active_rids():
+        for rid in rids:
             try:
                 table, route_id, dest = self._prepare(rid, None, strip_live=stale)
             except NotFound:
@@ -112,7 +151,62 @@ class RiskService:
         with self._lock:
             for rid, row in out.items():
                 self._cache[rid] = Cached(row, batch[rid][2], stale, stamp)
+                self._failed.pop(rid, None)
+            for rid in rids:
+                if rid not in out:
+                    self._failed[rid] = stamp
         return len(out)
+
+    def refresh_features(self) -> int:
+        """Build features for queued rids first, then for every active service.
+
+        A queued rid gets its own small batch ahead of the full one, so a request that missed
+        the cache is answered as soon as possible. Returns how many services were built.
+        """
+        stale = self.is_stale()
+        queued = self._drain_queue()
+        self._memo = {}
+        try:
+            built = self._compute(queued, stale) if queued else 0
+            rest = [r for r in self.active_rids() if r not in set(queued)]
+            built += self._compute(rest, stale)
+            self._services = self._service_list()
+        finally:
+            self._memo = None
+        return built
+
+    def _service_list(self) -> list[dict[str, Any]]:
+        """Services due at a route destination in the next three hours, for GET /services."""
+        now = pd.Timestamp(self.now())
+        out = []
+        for rid in self.active_rids():
+            try:
+                table, route_id, dest = self._prepare(rid, None, strip_live=False)
+            except NotFound:
+                continue
+            sched = dest["sched_arr"]
+            if pd.isna(sched) or sched < now or sched > now + pd.Timedelta(hours=3):
+                continue
+            toc = table["toc_code"].dropna()
+            first = table.iloc[0]
+            dep = first["sched_dep"] if pd.notna(first["sched_dep"]) else first["sched_arr"]
+            cancelled, _ = self.store.cancellation(rid)
+            out.append(
+                {
+                    "rid": rid, "route_id": route_id,
+                    "toc": None if toc.empty else str(toc.iloc[0]),
+                    "origin": str(first["location"]), "scheduled_departure": clock(dep),
+                    "scheduled_arrival": clock(sched),
+                    "minutes_to_arrival": int(round((sched - now).total_seconds() / 60.0)),
+                    "started": bool(pd.notna(first["actual_dep"])), "cancelled": cancelled,
+                    "_sort": sched,
+                }
+            )  # fmt: skip
+        out.sort(key=lambda d: d["_sort"])
+        return [{k: v for k, v in d.items() if k != "_sort"} for d in out]
+
+    def services(self, route_id: str | None = None) -> list[dict[str, Any]]:
+        return [s for s in self._services if route_id is None or s["route_id"] == route_id]
 
     # scoring
 
@@ -144,6 +238,7 @@ class RiskService:
             stale_live_data=stale,
             model_fallback=self.bundle is None,
             horizon_snapped_from_minutes=None,
+            horizon_used_minutes=None,
             route_in_training=route_id in self.route_model_trained_on,
             schedule_known=rid in self.store.schedules,
             features_age_seconds=None,
@@ -219,11 +314,18 @@ class RiskService:
             and time.monotonic() - hit.computed_at <= FEATURE_TTL_SECONDS
         ):
             return hit.features, time.monotonic() - hit.computed_at
-        return self.features.features(table, route_id, minutes), 0.0
+        with self._lock:
+            failed_at = self._failed.get(rid)
+        if failed_at is not None and time.monotonic() - failed_at < FEATURE_TTL_SECONDS * 2:
+            raise NotFound("features could not be built for that service")
+        # never build on the request path: a Spark job would blow the budget
+        self.queue_front(rid)
+        raise Warming(rid)
 
     def _predict(self, features, route_id, minutes, quality, notes):
         if self.bundle is not None:
             horizon, snapped = self.bundle.model_horizon(minutes)
+            quality["horizon_used_minutes"] = int(horizon)
             if snapped:
                 quality["horizon_snapped_from_minutes"] = float(minutes)
                 notes.append(f"the model was given its {horizon} minute horizon, not {minutes}")

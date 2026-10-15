@@ -476,6 +476,20 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ui(args: argparse.Namespace) -> int:
+    import subprocess
+    import sys
+
+    path = Path(__file__).parent / "ui" / "app.py"
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", str(path),
+        "--server.address", "127.0.0.1", "--server.port", str(args.port),
+        "--server.headless", "true", "--browser.gatherUsageStats", "false",
+        "--client.toolbarMode", "minimal",
+    ]  # fmt: skip
+    return subprocess.run(cmd, check=False).returncode  # noqa: S603
+
+
 def _promote(args: argparse.Namespace) -> int:
     from rail_risk.models.registry import register_champion
 
@@ -594,6 +608,8 @@ def main(argv: list[str] | None = None) -> int:
     cn.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     sv = sub.add_parser("serve", help="run the risk API on localhost")
     sv.add_argument("--port", type=int, default=8000)
+    ui = sub.add_parser("ui", help="run the Streamlit page on localhost (needs `serve`)")
+    ui.add_argument("--port", type=int, default=8501)
     pr = sub.add_parser("promote", help="register a reportable run and point an alias at it")
     pr.add_argument("--run-id", required=True)
     pr.add_argument("--alias", default="champion")
@@ -622,6 +638,8 @@ def main(argv: list[str] | None = None) -> int:
         return _train(args)
     if args.command == "serve":
         return _serve(args)
+    if args.command == "ui":
+        return _ui(args)
     if args.command == "promote":
         return _promote(args)
     if args.command == "backtest-connections":

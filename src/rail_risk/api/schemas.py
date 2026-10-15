@@ -25,6 +25,9 @@ class DataQuality(BaseModel):
     horizon_snapped_from_minutes: float | None = Field(
         description="Real minutes to arrival when the model was given a different trained horizon"
     )
+    horizon_used_minutes: int | None = Field(
+        default=None, description="The horizon the model was given, when a model was used"
+    )
     route_in_training: bool
     schedule_known: bool
     features_age_seconds: float | None
@@ -68,3 +71,30 @@ class Health(BaseModel):
     darwin_data_age_minutes: float | None
     stale_live_data: bool
     watched_services: int
+
+
+class Warming(BaseModel):
+    status: Literal["warming"] = "warming"
+    request_id: str
+    rid: str
+    retry_after_seconds: int
+    detail: str
+
+
+class ServiceItem(BaseModel):
+    rid: str
+    route_id: str
+    toc: str | None
+    origin: str
+    scheduled_departure: str
+    scheduled_arrival: str
+    minutes_to_arrival: int
+    started: bool
+    cancelled: bool
+
+
+class RouteItem(BaseModel):
+    id: str
+    origin: str
+    destination: str
+    model_trained_on_route: bool
