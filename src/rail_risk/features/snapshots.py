@@ -7,6 +7,7 @@ The label (arrival delay at the route destination) and the candidate-cancellatio
 outcomes and are never used as features.
 """
 
+import json
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -19,15 +20,14 @@ from pyspark.sql import DataFrame, SparkSession, Window
 HORIZONS = (120, 60, 15)
 HISTORY_DAYS = 28
 
-# England and Wales bank holidays. Written from memory for 2025 and 2026, NOT fetched from
-# gov.uk, so check them before relying on the flag. Boxing Day 2026 falls on a Saturday, so the
-# substitute day is Monday 28 December.
-BANK_HOLIDAYS = (
-    "2025-01-01", "2025-04-18", "2025-04-21", "2025-05-05", "2025-05-26",
-    "2025-08-25", "2025-12-25", "2025-12-26",
-    "2026-01-01", "2026-04-03", "2026-04-06", "2026-05-04", "2026-05-25",
-    "2026-08-31", "2026-12-25", "2026-12-28",
-)  # fmt: skip
+BANK_HOLIDAYS_FILE = Path(__file__).resolve().parents[3] / "config" / "bank_holidays.json"
+
+
+def load_bank_holidays(path: Path = BANK_HOLIDAYS_FILE) -> tuple[str, ...]:
+    """England and Wales bank holiday dates, from the file fetched from gov.uk (see the file)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return tuple(e["date"] for e in data["events"])
+
 
 KEYS = ["rid", "route_id", "horizon_min"]
 LIVE_FEATURES = [
@@ -45,7 +45,6 @@ CONTEXT_FEATURES = [
     "day_of_week",
     "is_bank_holiday",
     "toc_code",
-    "reason_share_passed",
 ]
 HISTORY_FEATURES = ["hist_median_28d", "hist_p80_28d", "hist_n_28d"]
 FEATURE_COLUMNS = LIVE_FEATURES + CONTEXT_FEATURES + HISTORY_FEATURES
@@ -170,9 +169,11 @@ def build_snapshots(
     route_dest: dict[str, str],
     horizons: tuple[int, ...] = HORIZONS,
     labels: DataFrame | None = None,
+    bank_holidays: tuple[str, ...] | None = None,
 ) -> DataFrame:
     """Feature snapshots. `labels` overrides the source of the historical features, so a subset
     of services can be rebuilt against the full history."""
+    holidays = bank_holidays if bank_holidays is not None else load_bank_holidays()
     services, rows = destination_services(spark, stops, rid_routes, route_dest)
     hz = spark.createDataFrame([(h,) for h in horizons], "horizon_min int")
     base = services.crossJoin(hz).withColumn(
@@ -203,8 +204,7 @@ def build_snapshots(
         "lateness", _minutes(F.col("actual"), F.col("sched"))
     )
     totals = stops_seen.groupBy("rid", "route_id", "horizon_min").agg(
-        F.count("*").alias("n_stops_passed"),
-        F.sum(F.col("late_canc_reason").isNotNull().cast("int")).alias("_n_reason"),
+        F.count("*").alias("n_stops_passed")
     )
     last = ranked.filter("_rn = 1").select(
         "rid", "route_id", "horizon_min",
@@ -228,11 +228,10 @@ def build_snapshots(
         .withColumn(
             "lateness_change_last_2", F.col("last_stop_lateness_min") - F.col("_prev_lateness")
         )
-        .withColumn("reason_share_passed", F.col("_n_reason") / F.col("n_stops_passed"))
         .withColumn("hour_of_day", F.hour(local_t))
         .withColumn("dest_hour", F.hour(F.from_utc_timestamp("dest_sched_arr", "Europe/London")))
         .withColumn("day_of_week", ((F.dayofweek("service_date") + 5) % 7) + 1)
-        .withColumn("is_bank_holiday", F.col("service_date").cast("string").isin(*BANK_HOLIDAYS))
+        .withColumn("is_bank_holiday", F.col("service_date").cast("string").isin(*holidays))
         .withColumn("is_candidate_cancelled", F.col("candidate_cancelled"))
         .withColumn(
             "label_delay_min",
