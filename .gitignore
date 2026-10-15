@@ -10,3 +10,11 @@ data/*
 mlruns/
 .DS_Store
 logs/
+
+# terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+infra/*.tfplan
+infra/crash.log

@@ -1,0 +1,53 @@
+# Local stack: the risk API, the Streamlit page and an optional Darwin capture.
+#   docker compose up --build api ui        # then http://127.0.0.1:8501
+#   docker compose --profile capture up capture
+# Ports bind to localhost only. data/ and mlruns/ are mounted read-only for api and ui. No secret
+# is in an image or in this file: the capture takes its credentials from .env at run time.
+name: connection-risk
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    image: rail-risk-api:latest
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data:ro
+      - ./mlruns:/app/mlruns:ro
+    read_only: true
+    tmpfs:
+      # exec is needed: Spark unpacks native libraries (snappy) into /tmp and maps them
+      - /tmp:exec,mode=1777,size=1g
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      target: ui
+    image: rail-risk-ui:latest
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      RAIL_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  capture:
+    # Do not run this while a host capture is running: two consumers in one group would
+    # split the partitions between them.
+    profiles: [capture]
+    image: rail-risk-api:latest
+    command: ["python", "scripts/capture_darwin.py"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

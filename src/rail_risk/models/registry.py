@@ -43,6 +43,26 @@ def register_champion(
     return str(version.version)
 
 
+def _local_source(source: str, tracking_dir: Path) -> str:
+    """The artefact folder for a version, even when the store has moved.
+
+    The registry records the absolute path of the machine that trained the model. When that
+    path does not exist (the store is mounted elsewhere, as in a container) the part after
+    `/artifacts/` is looked up under this tracking directory instead.
+    """
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(source)
+    if parsed.scheme not in ("", "file"):
+        return source
+    path = Path(unquote(parsed.path))
+    if path.exists() or "/artifacts/" not in str(path):
+        return source
+    relative = str(path).split("/artifacts/", 1)[1]
+    candidate = tracking_dir.resolve() / "artifacts" / relative
+    return str(candidate) if candidate.exists() else source
+
+
 @dataclass
 class Loaded:
     bundle: ModelBundle
@@ -57,7 +77,11 @@ def load_alias(tracking_dir: Path, name: str = MODEL_NAME, alias: str = ALIAS) -
     """Resolve the alias, download the version's artefacts and load the bundle."""
     mlflow, client = _client(tracking_dir)
     version = client.get_model_version_by_alias(name, alias)
-    folder = Path(mlflow.artifacts.download_artifacts(artifact_uri=version.source))
+    folder = Path(
+        mlflow.artifacts.download_artifacts(
+            artifact_uri=_local_source(version.source, tracking_dir)
+        )
+    )
     run = client.get_run(version.run_id)
     return Loaded(
         bundle=load_bundle(folder),

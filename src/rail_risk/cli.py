@@ -470,9 +470,105 @@ def _serve(args: argparse.Namespace) -> int:
 
     configure_logging(Settings().log_level, Settings().log_json)
     uvicorn.run(
-        "rail_risk.api.app:app_from_environment", factory=True, host="127.0.0.1",
+        "rail_risk.api.app:app_from_environment", factory=True, host=args.host,
         port=args.port, log_level="warning",
     )  # fmt: skip
+    return 0
+
+
+def _drift(args: argparse.Namespace) -> int:
+    from datetime import UTC, datetime
+
+    import pandas as pd
+
+    from rail_risk.drift import drift_report, write_report
+    from rail_risk.evaluation import complete_days, load_snapshots, load_split_config, make_split
+    from rail_risk.features.snapshots import CONTEXT_FEATURES, HISTORY_FEATURES, LIVE_FEATURES
+    from rail_risk.live import FeatureService, LiveStore, load_tiplocs, resolve_route
+    from rail_risk.spark import build_spark
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        eval_cfg = load_split_config(args.split_file)
+        snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        if eval_cfg.routes:
+            snaps = snaps[snaps["route_id"].isin(eval_cfg.routes)]
+        days = complete_days(
+            settings.data_dir / "interim" / "hsp_manifest.sqlite",
+            sorted(snaps["route_id"].unique()),
+            eval_cfg.windows_per_day,
+        )
+        split = make_split([d for d in days if d in set(snaps["service_date"])], eval_cfg)
+        routes = load_routes(settings.routes_file).routes
+    except (ValueError, OSError) as exc:
+        log.error("drift_invalid", error=str(exc))
+        return 1
+    train = snaps[
+        snaps["service_date"].isin(set(split.train))
+        & (snaps["horizon_min"] == args.minutes)
+        & snaps["label_delay_min"].notna()
+    ]
+
+    store = LiveStore(
+        settings.data_dir / "interim", settings.data_dir / "raw" / "darwin", load_tiplocs(),
+        days_back=args.days,
+    )  # fmt: skip
+    store.refresh()
+    now = pd.Timestamp(datetime.now(UTC))
+    dest_tiplocs = {t for t, crs in store.tiplocs.items() if crs in {r.destination for r in routes}}
+    ev = store.events
+    arrived = ev[
+        (ev["event_type"] == "arr")
+        & ev["tiploc"].isin(dest_tiplocs)
+        & (ev["planned_time"] <= now)
+        & (ev["planned_time"] >= now - pd.Timedelta(days=args.days))
+    ]
+    batch = {}
+    for rid in sorted(set(arrived["rid"])):
+        table = store.stop_table(rid)
+        route_id = resolve_route(table, routes) if len(table) >= 2 else None
+        if route_id is None or route_id not in set(snaps["route_id"]):
+            continue
+        batch[rid] = (table, route_id, args.minutes)
+    features = FeatureService(
+        build_spark("drift", cores=2, driver_memory="2g", shuffle_partitions=2, adaptive=False),
+        settings.data_dir / "interim",
+        settings.routes_file,
+    )
+    rows = []
+    items = list(batch.items())
+    for start in range(0, len(items), 150):
+        rows.extend(features.batch(dict(items[start : start + 150])).values())
+    live = pd.DataFrame(rows)
+    names = [*LIVE_FEATURES, *CONTEXT_FEATURES, *HISTORY_FEATURES]
+    categorical = ["toc_code"]
+    numeric = [c for c in names if c not in categorical]
+    first = arrived["planned_time"].min()
+    report = drift_report(
+        train, live, numeric, categorical,
+        window={
+            "live_from": None if pd.isna(first) else first.date().isoformat(),
+            "live_to": now.date().isoformat(),
+            "minutes": args.minutes,
+            "days_requested": args.days,
+            "caveat": (
+                "Darwin capture started on 2026-10-15, so the live window holds fewer than "
+                f"{args.days} days of services. Daily and weekly patterns in the live sample are "
+                "partial, and PSI on a short window is noisy."
+            ),
+        },
+    )  # fmt: skip
+    write_report(report, args.out)
+    top = report["features"][:3]
+    print(
+        f"drift: {report['live_rows']} live services against {report['train_rows']} training rows; "
+        f"summary {report['summary']}"
+    )
+    for r in top:
+        print(f"  {r['feature']}: PSI {r['psi']:.3f} ({r['status']})")
     return 0
 
 
@@ -483,7 +579,7 @@ def _ui(args: argparse.Namespace) -> int:
     path = Path(__file__).parent / "ui" / "app.py"
     cmd = [
         sys.executable, "-m", "streamlit", "run", str(path),
-        "--server.address", "127.0.0.1", "--server.port", str(args.port),
+        "--server.address", args.host, "--server.port", str(args.port),
         "--server.headless", "true", "--browser.gatherUsageStats", "false",
         "--client.toolbarMode", "minimal",
     ]  # fmt: skip
@@ -608,8 +704,17 @@ def main(argv: list[str] | None = None) -> int:
     cn.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     sv = sub.add_parser("serve", help="run the risk API on localhost")
     sv.add_argument("--port", type=int, default=8000)
+    sv.add_argument("--host", default="127.0.0.1", help="0.0.0.0 only inside a container")
+    dr = sub.add_parser("drift", help="PSI of live serving features against training")
+    dr.add_argument("--days", type=int, default=7)
+    dr.add_argument(
+        "--minutes", type=int, default=60, help="features built this long before arrival"
+    )
+    dr.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    dr.add_argument("--out", type=Path, default=Path("reports"))
     ui = sub.add_parser("ui", help="run the Streamlit page on localhost (needs `serve`)")
     ui.add_argument("--port", type=int, default=8501)
+    ui.add_argument("--host", default="127.0.0.1")
     pr = sub.add_parser("promote", help="register a reportable run and point an alias at it")
     pr.add_argument("--run-id", required=True)
     pr.add_argument("--alias", default="champion")
@@ -638,6 +743,8 @@ def main(argv: list[str] | None = None) -> int:
         return _train(args)
     if args.command == "serve":
         return _serve(args)
+    if args.command == "drift":
+        return _drift(args)
     if args.command == "ui":
         return _ui(args)
     if args.command == "promote":
