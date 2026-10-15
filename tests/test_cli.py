@@ -104,7 +104,7 @@ def test_train_guard_blocks_the_report_below_the_threshold_or_on_a_dirty_tree(
     import rail_risk.models.pipeline as pipe
 
     days = [date(2026, 9, 1) + timedelta(days=i) for i in range(30)]
-    snaps = pd.DataFrame({"route_id": "r1", "service_date": days})
+    snaps = pd.DataFrame({"route_id": "bhm-eus", "service_date": days})
     monkeypatch.setattr(ev, "load_snapshots", lambda path: snaps)
     monkeypatch.setattr(ev, "complete_days", lambda *a, **k: days)
     seen = {}

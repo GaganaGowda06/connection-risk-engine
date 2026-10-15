@@ -72,6 +72,13 @@ def conformal_offset(y: np.ndarray, lo: np.ndarray, hi: np.ndarray, coverage: fl
     return float(np.quantile(scores, level, method="higher"))
 
 
+def _one_sided_offset(residual: np.ndarray, q: float) -> float:
+    """Conformal shift for quantile level q: the finite-sample q-quantile of y minus the model."""
+    n = len(residual)
+    level = min(1.0, np.ceil((n + 1) * q) / n)
+    return float(np.quantile(residual, level, method="higher"))
+
+
 def apply_offset(
     lo: np.ndarray, med: np.ndarray, hi: np.ndarray, offset: float
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -92,11 +99,25 @@ class QuantileFit:
     best_iteration: int
     coverage: float
     target: str = "direct"
+    interval: tuple[float, float] | None = None  # quantile levels bounding the CQR interval
+    dist_offsets: dict[tuple[int, int], dict[float, float]] = field(default_factory=dict)
     global_offsets: dict[int, float] = field(default_factory=dict)
     offsets: dict[tuple[int, int], float] = field(default_factory=dict)  # (horizon, group)
     group_map: dict[int, dict[int, int]] = field(default_factory=dict)  # horizon -> group -> rep
     merges: list[dict[str, Any]] = field(default_factory=list)
     edges: tuple[float, ...] = DEFAULT_EDGES
+
+    @property
+    def _lo(self) -> int:
+        return self.quantiles.index(self.interval[0]) if self.interval else 0
+
+    @property
+    def _hi(self) -> int:
+        return self.quantiles.index(self.interval[1]) if self.interval else len(self.quantiles) - 1
+
+    @property
+    def _mid(self) -> int:
+        return self.quantiles.index(0.5) if 0.5 in self.quantiles else len(self.quantiles) // 2
 
     def raw(self, df: pd.DataFrame) -> np.ndarray:
         """Sorted quantiles on the delay scale. A residual model adds the lateness at T back."""
@@ -114,7 +135,7 @@ class QuantileFit:
         mode "mondrian" uses the offset of the row's lateness group, "global" the horizon's.
         """
         raw = self.raw(df)
-        lo, med, hi = raw[:, 0], raw[:, len(self.quantiles) // 2], raw[:, -1]
+        lo, med, hi = raw[:, self._lo], raw[:, self._mid], raw[:, self._hi]
         horizons = df["horizon_min"].to_numpy()
         if mode == "global":
             offset = np.array([self.global_offsets[int(h)] for h in horizons])
@@ -143,7 +164,7 @@ class QuantileFit:
         groups_all = lateness_groups(df, self.edges)
         for h, idx in df.groupby("horizon_min").indices.items():
             h = int(h)
-            y, lo, hi, g = y_all[idx], raw[idx, 0], raw[idx, -1], groups_all[idx]
+            y, lo, hi, g = y_all[idx], raw[idx, self._lo], raw[idx, self._hi], groups_all[idx]
             self.global_offsets[h] = conformal_offset(y, lo, hi, self.coverage)
             counts = {k: int((g == k).sum()) for k in range(len(self.edges) + 2)}
             mapping, merges = merge_groups(counts, min_rows)
@@ -157,7 +178,27 @@ class QuantileFit:
                 self.offsets[(h, rep)] = conformal_offset(
                     y[mask], lo[mask], hi[mask], self.coverage
                 )
+                # one-sided offsets for every quantile level, same groups and merges
+                self.dist_offsets[(h, rep)] = {
+                    q: _one_sided_offset(y[mask] - raw[idx][mask, k], q)
+                    for k, q in enumerate(self.quantiles)
+                }
         return self
+
+    def distribution(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        """(levels, quantiles) of the predictive delay: one row of calibrated quantiles per row.
+
+        Each level is shifted by the Mondrian one-sided offset of the row's horizon and lateness
+        group, then the row is sorted so the quantile function is monotone.
+        """
+        raw = self.raw(df)
+        horizons = df["horizon_min"].to_numpy()
+        groups = lateness_groups(df, self.edges)
+        out = raw.copy()
+        for i, (h, g) in enumerate(zip(horizons, groups, strict=True)):
+            offs = self.dist_offsets[(int(h), self.group_map[int(h)][int(g)])]
+            out[i] = raw[i] + np.array([offs[q] for q in self.quantiles])
+        return np.asarray(self.quantiles), np.sort(out, axis=1)
 
 
 def _booster(
@@ -218,13 +259,14 @@ def fit_quantile(
     if target not in TARGETS:
         raise ValueError(f"unknown target {target!r}")
     quantiles = tuple(cfg["quantiles"])
+    interval = tuple(cfg.get("interval", (quantiles[0], quantiles[-1])))
     design = Design(columns).fit(train)
     x_train = design.transform(train)
     y_train = _target_values(train, target)
     x_tune = design.transform(tune)
     y_tune = _target_values(tune, target)
     fixed = {**cfg["fixed"], "num_threads": cfg["num_threads"]}
-    mid = quantiles[len(quantiles) // 2]
+    mid = 0.5 if 0.5 in quantiles else quantiles[len(quantiles) // 2]
 
     results = []
     best: tuple[float, QuantileFit] | None = None
@@ -252,7 +294,14 @@ def fit_quantile(
             best = (
                 loss,
                 QuantileFit(
-                    design, quantiles, boosters, params, rounds, cfg["nominal_coverage"], target
+                    design,
+                    quantiles,
+                    boosters,
+                    params,
+                    rounds,
+                    cfg["nominal_coverage"],
+                    target,
+                    interval,
                 ),
             )
     assert best is not None
@@ -280,6 +329,17 @@ class QuantileModel:
             p, low, up = self.fits[self.choice[int(h)]].predict(df.iloc[idx], mode)
             point[idx], lo[idx], hi[idx] = p, low, up
         return point, lo, hi
+
+    def distribution(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        """(levels, quantiles) per row from the target chosen for each row's horizon."""
+        levels = None
+        out = None
+        for h, idx in df.groupby("horizon_min").indices.items():
+            lv, q = self.fits[self.choice[int(h)]].distribution(df.iloc[idx])
+            if out is None:
+                levels, out = lv, np.empty((len(df), q.shape[1]))
+            out[idx] = q
+        return levels, out
 
     @property
     def chosen(self) -> QuantileFit:

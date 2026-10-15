@@ -71,6 +71,7 @@ class Operator(BaseModel):
     claim_window_days: int | None = None
     measured_at: str | None = None
     note: str | None = None
+    caveat: str | None = None
     tiers: list[Tier] = []
 
     @model_validator(mode="after")
@@ -135,6 +136,7 @@ class ExpectedRepay:
     expected_payout: float
     tiers: tuple[TierPayout, ...]
     p_no_payout: float
+    caveat: str | None = None
 
 
 def expected_repay(
@@ -183,5 +185,11 @@ def expected_repay(
         tiers.append(TierPayout(tier.label, prob, tier.share(ticket), pay, prob * pay))
     total = float(sum(t.expected for t in tiers))
     return ExpectedRepay(
-        toc, ticket, float(fare), total, tuple(tiers), p_no_payout=float(1.0 - covered)
+        toc,
+        ticket,
+        float(fare),
+        total,
+        tuple(tiers),
+        p_no_payout=float(1.0 - covered),
+        caveat=op.caveat,
     )

@@ -1,0 +1,14 @@
+# Minimum connection time (MCT) by station CRS code, used by the connection simulator.
+# status is "verified" only when the figure was read from a published source; otherwise
+# "assumed", and every output that uses it says so.
+stations:
+  BHM:
+    name: Birmingham New Street
+    minutes: 10
+    status: assumed
+    source: >-
+      National Rail's Birmingham New Street station page (checked 2026-10-15) lists facilities
+      and accessibility but no interchange time, so the figure could not be verified.
+    comment: >-
+      Assumed 10 minutes for a platform change at New Street. Replace with a published figure
+      when one is found.

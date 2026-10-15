@@ -364,7 +364,8 @@ def test_threshold_calibration_improves_and_choice_ignores_later_blocks():
     p_tune, y_tune, _ = _overconfident(3000, 2)
     p_new, y_new, _ = _overconfident(4000, 3)
     cal = fit_threshold_calibration(p_cal, y_cal, p_tune, y_tune, d_cal, BANDS, same=False)
-    assert cal.method in {"isotonic", "platt"} and set(cal.tune_log_loss) >= {"isotonic", "platt"}
+    assert cal.method in {"none", "isotonic", "platt"}
+    assert set(cal.tune_log_loss) == {"none", "isotonic", "platt"}
     after = cal.transform(p_new)
     assert after.sum(axis=1) == pytest.approx(1.0) and (after >= 0).all()
     before15, after15 = exceedance(p_new, BANDS, 15), exceedance(after, BANDS, 15)
@@ -376,4 +377,23 @@ def test_threshold_calibration_improves_and_choice_ignores_later_blocks():
     assert again.method == cal.method and again.tune_log_loss == cal.tune_log_loss
     # one validation block: cross-validated over dates, still returns a valid choice
     same = fit_threshold_calibration(p_cal, y_cal, p_cal, y_cal, d_cal, BANDS, same=True)
-    assert same.method in {"isotonic", "platt"}
+    assert same.method in {"none", "isotonic", "platt"}
+
+
+def test_distribution_quantiles_are_calibrated_within_each_lateness_group():
+    cfg = {**CFG, "quantiles": [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95], "interval": [0.1, 0.9]}
+    df = hetero(20_000 * 3, seed=33)
+    train, calib, test = df.iloc[:20_000], df.iloc[20_000:40_000], df.iloc[40_000:]
+    fit, _ = fit_quantile(train, calib, calib, cfg, columns=["horizon_min"])
+    levels, q = fit.distribution(test)
+    assert levels.tolist() == cfg["quantiles"] and q.shape == (len(test), 7)
+    assert (np.diff(q, axis=1) >= 0).all()  # a monotone quantile function per row
+    y = test["label_delay_min"].to_numpy()
+    groups = lateness_groups(test)
+    for k in range(4):
+        m = groups == k
+        for j, level in enumerate(levels):
+            assert abs(float(np.mean(y[m] <= q[m, j])) - level) < 0.035, (k, level)
+    # the 80% interval still comes from the 0.1 and 0.9 quantiles
+    _, lo, hi = fit.predict(test)
+    assert abs(float(np.mean((y >= lo) & (y <= hi))) - 0.8) < 0.02

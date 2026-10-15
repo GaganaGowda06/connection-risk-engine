@@ -149,6 +149,24 @@ def calibration_comparison(
     return out
 
 
+def fit_for_inference(
+    snapshots: pd.DataFrame,
+    split: Split,
+    bands: Bands,
+    cfg: dict[str, Any],
+    columns: list[str] | None = None,
+) -> Fitted:
+    """Fit on the train block and calibrate on validation only, as run_training does."""
+    block_of = {d: n for n, days in split.blocks().items() for d in days}
+    df = snapshots[snapshots["service_date"].isin(block_of)].copy()
+    df["block"] = df["service_date"].map(block_of)
+    scored = df[df["label_delay_min"].notna()]
+    return fit_all(
+        scored[scored["block"] == "train"], scored[scored["block"] == "validation"], bands, cfg,
+        columns,
+    )  # fmt: skip
+
+
 def run_training(
     snapshots: pd.DataFrame,
     split: Split,
@@ -208,8 +226,10 @@ def run_training(
         ),
         "band_calibration": fitted.bands.calibrator.name,
         "threshold_calibration": {
-            "method": fitted.bands.threshold.method,
-            "tune_log_loss": fitted.bands.threshold.tune_log_loss,
+            "by_horizon": {
+                str(h): {"method": c.method, "tune_log_loss": c.tune_log_loss}
+                for h, c in sorted(fitted.bands.threshold.items(), reverse=True)
+            },
             "validation_split_in_two": fitted.validation_split,
         },
         "band_calibration_cv_log_loss": fitted.bands.cv_log_loss,
@@ -330,7 +350,12 @@ def log_to_mlflow(
                 "best_iteration": json.dumps(result["model"]["best_iteration"]),
                 "conformal": "mondrian_by_lateness",
                 "band_calibration": result["model"]["band_calibration"],
-                "threshold_calibration": result["model"]["threshold_calibration"]["method"],
+                "threshold_calibration": json.dumps(
+                    {
+                        h: c["method"]
+                        for h, c in result["model"]["threshold_calibration"]["by_horizon"].items()
+                    }
+                ),
                 "validation_split_in_two": result["model"]["validation_split_in_two"],
                 "seed": seed,
                 "train_days": result["train_days"],
@@ -445,6 +470,9 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str, sha: str
     glabels = group_labels()
     target_text = ", ".join(f"T-{h}: {m['target_by_horizon'][str(h)]}" for h in horizons)
     halved = m["validation_split_in_two"]
+    threshold_text = ", ".join(
+        f"T-{h} {c['method']}" for h, c in m["threshold_calibration"]["by_horizon"].items()
+    )
     lines = [
         "# Model results",
         "",
@@ -467,9 +495,10 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str, sha: str
         "tuning pinball loss between the direct delay and the delay minus the lateness at T: "
         f"{target_text}. Band probabilities come from a LightGBM band model with "
         f"{m['band_calibration']} calibration. P(at least 15) and P(at least 30) are then "
-        f"recalibrated with {m['threshold_calibration']['method']} regression fitted on the "
-        "calibration rows and chosen by log loss on the tuning rows, and the band probabilities "
-        "are rebuilt from the recalibrated exceedances so that they stay monotone and sum to 1. "
+        "recalibrated separately per horizon, choosing among isotonic regression, Platt scaling "
+        "and no recalibration by log loss on the tuning rows, with the methods fitted on the "
+        f"calibration rows. The choice was {threshold_text}. The band probabilities are rebuilt "
+        "from the recalibrated exceedances so that they stay monotone and sum to 1. "
         "The delay bands are provisional.",
         "",
         "Two kinds of check are reported. The conformal guarantee is coverage conditional on the "

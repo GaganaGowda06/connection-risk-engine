@@ -1,7 +1,10 @@
 # Training pipeline settings. Results are only reportable above min_train_days.
 min_train_days: 60
 seed: 20261015
-quantiles: [0.1, 0.5, 0.9]
+# 0.05, 0.25, 0.75 and 0.95 give the predictive distribution for the connection simulator; the
+# 80% interval and its CQR offsets still use 0.1 and 0.9
+quantiles: [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+interval: [0.1, 0.9]
 nominal_coverage: 0.8
 # with at least this many validation days, validation is split in two by date: the first half
 # tunes and early-stops, the second half calibrates (conformal offsets, band calibration)

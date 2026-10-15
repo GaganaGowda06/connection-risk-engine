@@ -215,6 +215,8 @@ def _train(args: argparse.Namespace) -> int:
         eval_cfg = load_split_config(args.split_file)
         bands = load_bands(args.bands_file)
         snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        if eval_cfg.routes:
+            snaps = snaps[snaps["route_id"].isin(eval_cfg.routes)]
         routes = sorted(snaps["route_id"].unique())
         days = complete_days(
             settings.data_dir / "interim" / "hsp_manifest.sqlite", routes, eval_cfg.windows_per_day
@@ -257,6 +259,164 @@ def _train(args: argparse.Namespace) -> int:
     return 0
 
 
+def _connection(args: argparse.Namespace) -> int:
+    import sqlite3
+
+    import pandas as pd
+
+    from rail_risk.connection import (
+        OutboundDelays,
+        Train,
+        hhmm_to_minutes,
+        journey_repay,
+        load_stations,
+        minutes_to_hhmm,
+        service_table,
+        simulate,
+        to_local_minutes,
+    )
+    from rail_risk.evaluation import (
+        complete_days,
+        load_bands,
+        load_snapshots,
+        load_split_config,
+        make_split,
+    )
+    from rail_risk.models.pipeline import fit_for_inference, load_train_config
+    from rail_risk.repay import RepayError, load_rules
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        cfg = load_train_config(args.config)
+        eval_cfg = load_split_config(args.split_file)
+        bands = load_bands(args.bands_file)
+        station = load_stations(args.stations_file)[args.hub]
+        rules = load_rules(args.rules_file)
+        planned_min = hhmm_to_minutes(args.outbound_dep)
+        snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+    except (ValueError, OSError, KeyError) as exc:
+        log.error("connection_invalid", error=str(exc))
+        return 1
+
+    # the model is fitted on the train block and calibrated on validation, never on test
+    model_snaps = snaps[snaps["route_id"].isin(eval_cfg.routes)] if eval_cfg.routes else snaps
+    manifest = settings.data_dir / "interim" / "hsp_manifest.sqlite"
+    days = complete_days(
+        manifest, sorted(model_snaps["route_id"].unique()), eval_cfg.windows_per_day
+    )
+    split = make_split([d for d in days if d in set(model_snaps["service_date"])], eval_cfg)
+    row = snaps[
+        (snaps["rid"] == args.inbound_rid)
+        & (snaps["service_date"] == args.date)
+        & (snaps["horizon_min"] == args.horizon)
+    ]
+    if row.empty:
+        log.error("connection_invalid", error="no snapshot for that rid, date and horizon")
+        return 1
+    row = row.iloc[[0]]
+    fitted = fit_for_inference(model_snaps, split, bands, cfg)
+    levels, quantiles = fitted.quantile.distribution(row)
+
+    # schedule and history: bhm-eus services call at the hub and the destination
+    db = sqlite3.connect(f"file:{manifest}?mode=ro", uri=True)
+    try:
+        rids = {r[0] for r in db.execute("SELECT rid FROM rid_routes WHERE route='bhm-eus'")}
+    finally:
+        db.close()
+    stops_dir = settings.data_dir / "interim" / "hsp_stops"
+
+    def read_days(day_list):
+        frames = [
+            pd.read_parquet(stops_dir / f"date={d.isoformat()}")
+            for d in day_list
+            if (stops_dir / f"date={d.isoformat()}").exists()
+        ]
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    day_stops = read_days([args.date])
+    inbound = day_stops[
+        (day_stops["rid"] == args.inbound_rid) & (day_stops["location"] == args.hub)
+    ]
+    if inbound.empty:
+        log.error("connection_invalid", error="inbound service has no stop at the hub that day")
+        return 1
+    inbound_arr = float(to_local_minutes(inbound["sched_arr"].iloc[[0]], args.date).iloc[0])
+    out_today = service_table(day_stops[day_stops["rid"].isin(rids)], args.hub, args.dest)
+    out_today = out_today.sort_values("sched_dep")
+    hit = out_today[(out_today["sched_dep"] - planned_min).abs() < 0.5]
+    if hit.empty:
+        log.error("connection_invalid", error="no planned outbound departs at that time")
+        return 1
+    later = out_today[out_today["sched_dep"] > hit["sched_dep"].iloc[0]].head(3)
+
+    def train_of(r):
+        return Train(float(r.sched_dep), float(r.sched_arr), str(r.toc))
+
+    planned = train_of(next(hit.iloc[[0]].itertuples()))
+    alternatives = [train_of(r) for r in later.itertuples()]
+    history = service_table(
+        read_days(split.train)[lambda d: d["rid"].isin(rids)], args.hub, args.dest
+    )
+    result = simulate(
+        levels, quantiles[0], inbound_arr, planned, alternatives, station.minutes,
+        OutboundDelays.fit(history), bands.lower_edges, args.draws, cfg["seed"],
+    )  # fmt: skip
+
+    h = args.horizon
+    print(
+        f"inbound {args.inbound_rid} on {args.date}, forecast made T-{h}, scheduled at "
+        f"{args.hub} {minutes_to_hhmm(inbound_arr)}"
+    )
+    print(
+        f"outbound {minutes_to_hhmm(planned.sched_dep)} to {args.dest}, planned arrival "
+        f"{minutes_to_hhmm(planned.sched_arr)}; alternatives "
+        + (", ".join(minutes_to_hhmm(a.sched_dep) for a in alternatives) or "none")
+    )
+    print(f"minimum connection time at {args.hub}: {station.minutes} min ({station.status})")
+    lo_q, med_q, hi_q = 0.1, 0.5, 0.9
+    print(f"P(miss): {result.p_miss:.3f}   P(stranded): {result.p_stranded:.3f}")
+    if result.stranded:
+        print("STRANDED: no draw reaches the destination; no arrival time or payout is given")
+    else:
+        lo, hi = result.arrival_range(lo_q, hi_q)
+        med = planned.sched_arr + result.delay_quantiles[med_q]
+        print(
+            f"final arrival at {args.dest}: 80% range {minutes_to_hhmm(lo)} to "
+            f"{minutes_to_hhmm(hi)}, median {minutes_to_hhmm(med)}"
+        )
+        print(
+            "band probabilities: "
+            + ", ".join(
+                f"{lab} {p:.3f}" for lab, p in zip(bands.labels, result.band_probs, strict=True)
+            )
+        )
+        toc = args.toc or planned.toc
+        try:
+            r = journey_repay(result, bands.lower_edges, toc, args.ticket, args.fare, rules)
+            print(
+                f"expected Delay Repay on a £{args.fare:.2f} {args.ticket} ({toc}): "
+                f"£{r.expected_payout:.2f}"
+                + ("  [conditional on completing]" if result.p_stranded > 0 else "")
+            )
+            if r.caveat:
+                print(f"note: {r.caveat}")
+        except RepayError as exc:
+            print(f"expected Delay Repay: not priced ({exc})")
+    print(f"{result.n_draws} draws, seed {cfg['seed']}; legs are assumed independent")
+    if station.status != "verified":
+        print(f"note: the {args.hub} connection time is {station.status}: {station.comment}")
+    if args.inbound_rid and set(model_snaps["route_id"].unique()) != {str(row["route_id"].iloc[0])}:
+        print(
+            f"note: the delay model was fitted on {sorted(model_snaps['route_id'].unique())}, "
+            f"not on the inbound route {row['route_id'].iloc[0]}, so its accuracy there is "
+            "not validated"
+        )
+    return 0
+
+
 def _evaluate_baselines(args: argparse.Namespace) -> int:
     from rail_risk.evaluation import (
         complete_days,
@@ -276,6 +436,8 @@ def _evaluate_baselines(args: argparse.Namespace) -> int:
         cfg = load_split_config(args.split_file)
         bands = load_bands(args.bands_file)
         snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        if cfg.routes:
+            snaps = snaps[snaps["route_id"].isin(cfg.routes)]
         routes = sorted(snaps["route_id"].unique())
         days = complete_days(
             settings.data_dir / "interim" / "hsp_manifest.sqlite", routes, cfg.windows_per_day
@@ -338,6 +500,22 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     ev.add_argument("--out", type=Path, default=Path("reports"))
+    cn = sub.add_parser("connection", help="miss probability and expected payout for a connection")
+    cn.add_argument("--inbound-rid", required=True)
+    cn.add_argument("--outbound-dep", required=True, help="planned outbound departure HH:MM")
+    cn.add_argument("--date", type=date.fromisoformat, required=True)
+    cn.add_argument("--fare", type=float, required=True, help="fare in pounds, always supplied")
+    cn.add_argument("--ticket", choices=["single", "return"], required=True)
+    cn.add_argument("--horizon", type=int, default=60, choices=[120, 60, 15])
+    cn.add_argument("--hub", default="BHM")
+    cn.add_argument("--dest", default="EUS")
+    cn.add_argument("--toc", default=None, help="TOC to price the payout under (default: outbound)")
+    cn.add_argument("--draws", type=int, default=2000)
+    cn.add_argument("--config", type=Path, default=Path("config/train.yaml"))
+    cn.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    cn.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
+    cn.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
+    cn.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -351,6 +529,8 @@ def main(argv: list[str] | None = None) -> int:
         return _build_features(args)
     if args.command == "train":
         return _train(args)
+    if args.command == "connection":
+        return _connection(args)
     if args.command == "evaluate-baselines":
         return _evaluate_baselines(args)
     if args.command == "rebuild-hsp":

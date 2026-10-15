@@ -175,7 +175,18 @@ class _Isotonic:
         return self.model.predict(p)
 
 
-_METHODS = {"isotonic": _Isotonic, "platt": _Platt}
+class _NoCalibration:
+    name = "none"
+
+    def fit(self, p: np.ndarray, y: np.ndarray) -> "_NoCalibration":
+        return self
+
+    def predict(self, p: np.ndarray) -> np.ndarray:
+        return p
+
+
+# order is the tie-break: the simplest method wins a tie
+_METHODS = {"none": _NoCalibration, "platt": _Platt, "isotonic": _Isotonic}
 
 
 def _binary_log_loss(p: np.ndarray, y: np.ndarray) -> float:
@@ -208,11 +219,12 @@ def fit_threshold_calibration(
     bands: Bands,
     same: bool,
 ) -> ThresholdCalibration:
-    """Fit isotonic and Platt on the calibrate half, choose by tuning-half log loss.
+    """Fit isotonic and Platt on the calibrate half, choose among them and none by log loss.
 
-    `y_*` are band indices. Log loss is summed over the two thresholds. When validation was not
-    split (`same`), the choice is cross-validated over whole service dates of the one block
-    instead, so a method is never scored on the rows it was fitted on.
+    `y_*` are band indices. Log loss is summed over the two thresholds and computed on the
+    tuning half. When validation was not split (`same`), the choice is cross-validated over
+    whole service dates of the one block instead, so a method is never scored on the rows it
+    was fitted on. Ties go to the simpler method (none, then Platt).
     """
     obs = {t: (y_cal >= bands.lower_edges.index(t)).astype(float) for t in THRESHOLDS}
     obs_tune = {t: (y_tune >= bands.lower_edges.index(t)).astype(float) for t in THRESHOLDS}
@@ -227,7 +239,6 @@ def fit_threshold_calibration(
     if same:
         unique = np.unique(dates_cal)
         folds = min(5, len(unique))
-        fold_of = np.zeros(len(dates_cal), dtype=int)
         if folds >= 2:
             assignment = {d: i % folds for i, d in enumerate(unique)}
             fold_of = np.array([assignment[d] for d in dates_cal])
@@ -243,16 +254,14 @@ def fit_threshold_calibration(
                         for t in THRESHOLDS)
                 )  # fmt: skip
             scores[name] = float(np.mean(losses)) if losses else float("nan")
-        scores["none"] = float(sum(_binary_log_loss(e_cal[t], obs[t]) for t in THRESHOLDS))
     else:
         for name in _METHODS:
             maps = fit_all(name)
             scores[name] = float(
                 sum(_binary_log_loss(maps[t].predict(e_tune[t]), obs_tune[t]) for t in THRESHOLDS)
             )
-        scores["none"] = float(sum(_binary_log_loss(e_tune[t], obs_tune[t]) for t in THRESHOLDS))
-    usable = {k: v for k, v in scores.items() if k in _METHODS and not np.isnan(v)}
-    chosen = min(usable, key=usable.get) if usable else "platt"  # two parameters, safest default
+    usable = {k: v for k, v in scores.items() if not np.isnan(v)}
+    chosen = min(usable, key=lambda k: (usable[k], list(_METHODS).index(k))) if usable else "none"
     return ThresholdCalibration(chosen, bands, fit_all(chosen), scores)
 
 
@@ -264,7 +273,7 @@ class BandFit:
     calibrator: Any
     cv_log_loss: dict[str, float]
     best_iteration: int
-    threshold: ThresholdCalibration | None = None
+    threshold: dict[int, ThresholdCalibration] | None = None  # by horizon in minutes
 
     def predict_raw(self, df: pd.DataFrame) -> np.ndarray:
         raw = self.booster.predict(self.design.transform(df), num_iteration=self.best_iteration)
@@ -276,7 +285,13 @@ class BandFit:
 
     def predict(self, df: pd.DataFrame) -> np.ndarray:
         p = self.predict_pre_threshold(df)
-        return p if self.threshold is None else self.threshold.transform(p)
+        if not self.threshold:
+            return p
+        out = p.copy()
+        for h, idx in df.groupby("horizon_min").indices.items():
+            if int(h) in self.threshold:
+                out[idx] = self.threshold[int(h)].transform(p[idx])
+        return out
 
 
 def fit_bands(
@@ -321,16 +336,24 @@ def fit_bands(
     dates = calibrate["service_date"].to_numpy()
     calibrator, cv = choose_calibrator(p_cal, y_cal, dates)
     shell.calibrator, shell.cv_log_loss = calibrator, cv
-    # threshold recalibration: fitted on the calibrate half, chosen on the tune half
+    # threshold recalibration per horizon: fitted on the calibrate half, chosen on the tune half
     p_after = shell.predict_pre_threshold(calibrate)
     p_tune = shell.predict_pre_threshold(tune)
-    shell.threshold = fit_threshold_calibration(
-        p_after,
-        y_cal,
-        p_tune,
-        band_index(tune["label_delay_min"].to_numpy(dtype=float), bands),
-        dates,
-        bands,
-        same=tune is calibrate,
-    )
+    y_tune_band = band_index(tune["label_delay_min"].to_numpy(dtype=float), bands)
+    same = tune is calibrate
+    h_cal = calibrate["horizon_min"].to_numpy()
+    h_tune = tune["horizon_min"].to_numpy()
+    shell.threshold = {}
+    for h in sorted(set(h_cal.tolist())):
+        mc, mt = h_cal == h, h_tune == h
+        use_same = same or not mt.any()
+        shell.threshold[int(h)] = fit_threshold_calibration(
+            p_after[mc],
+            y_cal[mc],
+            p_after[mc] if use_same else p_tune[mt],
+            y_cal[mc] if use_same else y_tune_band[mt],
+            dates[mc],
+            bands,
+            same=use_same,
+        )
     return shell
