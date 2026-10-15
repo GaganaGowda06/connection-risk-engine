@@ -1,6 +1,6 @@
 # HSP response shapes
 
-Based on one probe run on 2026-10-15 against the RDM HSP product, BHM to EUS, departures 07:00 to 08:00 on 2026-10-01. Raw responses were saved to data/probe, which is git-ignored. Everything below comes from those two responses only, so it is a sample, not a full specification.
+Based on two probe runs on 2026-10-15 against the RDM HSP product, BHM to EUS. Run one covered departures 07:00 to 08:00 on 2026-10-01 (5 services, 1 detail). Run two covered 06:00 to 10:00 on 2026-10-08 (20 services, 2 details). Raw responses were saved to data/probe, which is git-ignored. Everything below comes from those responses only, so it is a small sample, not a full specification.
 
 ## Requests that worked
 
@@ -57,8 +57,35 @@ Top-level key: `serviceAttributesDetails`, with `date_of_service` ("2026-10-01")
 - The first eight digits of a rid are the service date as YYYYMMDD. The rest is an identifier. Treat rids as opaque strings.
 - Whether times after midnight roll over or carry a day marker is not known from this sample.
 
+## Reason codes
+
+`late_canc_reason` holds a numeric string when populated. Two codes were seen, both on 2026-10-08:
+
+- `"895"` at the final stop (EUS) of service 202610088734019 (VT, scheduled 0731, actual 0742, 11 minutes late). The earlier stops were empty although the train was already 5 to 6 minutes late from BHM onward.
+- `"520"` on service 202610086717977 (LM) at five consecutive stops from RUG to EUS, including the final stop (scheduled 0821, actual 0839, 18 minutes late). The code repeats at each stop after the one where it was first attached.
+
+So a code is attached at a stop and may repeat at later stops. A code appears at some late stops and not at others, so an empty value does not prove the train was on time. What the codes mean was not decoded here. They look like Darwin late-running reason codes and would need the Darwin reference table to translate.
+
+## Cancellations
+
+No cancelled service or cancelled stop was seen. Across the 25 services in the sample, every service returned by serviceMetrics had a populated serviceDetails when requested (3 requested), and every one ran from origin to EUS. Nothing in either response has a cancelled flag. How a cancellation is represented is therefore unresolved: it could be a missing service, a service with empty actuals and a reason code, or something else.
+
+One pattern that is not a cancellation: service 202610088734019 has a scheduled arrival at SAD (0552) with an empty `actual_ta`, but the train then called at every later stop. An empty actual at a stop is a reporting gap, not evidence the train was cancelled.
+
+## Metrics fields as observed
+
+- `tolerance_value` was "0" in every row, so only one tolerance was returned. The request body had no tolerance field, and whether one can be requested was not tested.
+- `num_tolerance` and `num_not_tolerance` were always "1" and "0", or "0" and "1", and `percent_tolerance` was "100" or "0". With one run per service, each service is simply on time or not, judged at the destination.
+- On 2026-10-08, all 20 services had `percent_tolerance` "0". The service with the 18 minute delay and the one with the 11 minute delay both show 0, so the field does not rank how late a train was.
+- `matched_services` was "1" and `rids` had one entry for all 25 services.
+
+## Practical limits seen
+
+- A four hour window (0600 to 1000) returned 20 services within the 30 second timeout. The next two four hour windows on the same day (1000 to 1400 and 1400 to 1800) each timed out twice. One hour windows returned quickly. Wide windows are unreliable.
+- Time values never crossed midnight in this sample (earliest 0542, latest 0839), so rollover behaviour is still unknown.
+
 ## What the sample does and does not show
 
-- Actual arrival times: yes. `actual_ta` is populated at every calling point that has a scheduled arrival.
-- Cancellation flags: none seen. There is no cancelled field, and the one service returned ran in full. Cancelled services may be absent from the data, or marked by empty actual times or by `late_canc_reason`. This needs a sample that contains a cancellation.
-- Delay reason codes: the `late_canc_reason` field exists but was empty at every location, even though the service reached EUS 6 minutes late (0926 against 0920). Its code format is not known.
+- Actual arrival times: yes. `actual_ta` is populated at nearly every calling point that has a scheduled arrival.
+- Cancellation flags: none seen, see above.
+- Delay reason codes: seen, as numeric strings, on late services only. Meaning not decoded.
