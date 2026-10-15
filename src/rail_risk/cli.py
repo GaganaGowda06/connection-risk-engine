@@ -326,15 +326,15 @@ def _connection(args: argparse.Namespace) -> int:
         rids = {r[0] for r in db.execute("SELECT rid FROM rid_routes WHERE route='bhm-eus'")}
     finally:
         db.close()
-    stops_dir = settings.data_dir / "interim" / "hsp_stops"
+    # the unified file is what the feature build reads; per-file schemas differ for all-null columns
+    unified = settings.data_dir / "interim" / "_unified" / "hsp_stops.parquet"
+    columns = ["rid", "date_of_service", "toc_code", "location", "sched_arr", "sched_dep",
+               "actual_arr", "actual_dep"]  # fmt: skip
+    all_stops = pd.read_parquet(unified, columns=columns)
+    all_stops["_day"] = pd.to_datetime(all_stops["date_of_service"]).dt.date
 
     def read_days(day_list):
-        frames = [
-            pd.read_parquet(stops_dir / f"date={d.isoformat()}")
-            for d in day_list
-            if (stops_dir / f"date={d.isoformat()}").exists()
-        ]
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        return all_stops[all_stops["_day"].isin(set(day_list))]
 
     day_stops = read_days([args.date])
     inbound = day_stops[
