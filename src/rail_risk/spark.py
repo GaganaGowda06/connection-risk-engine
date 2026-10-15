@@ -10,7 +10,14 @@ from pyspark.sql import SparkSession
 HOMEBREW_JAVA17 = Path("/opt/homebrew/opt/openjdk@17")
 
 
-def build_spark(app_name: str = "rail-risk", *, cores: int = 4, driver_memory: str = "6g"):
+def build_spark(
+    app_name: str = "rail-risk",
+    *,
+    cores: int = 4,
+    driver_memory: str = "6g",
+    shuffle_partitions: int = 16,
+    adaptive: bool = True,
+):
     """A local[cores] session with a UTC session time zone and adaptive execution on."""
     if "JAVA_HOME" not in os.environ and HOMEBREW_JAVA17.exists():
         os.environ["JAVA_HOME"] = str(HOMEBREW_JAVA17)
@@ -21,9 +28,9 @@ def build_spark(app_name: str = "rail-risk", *, cores: int = 4, driver_memory: s
         .config("spark.driver.bindAddress", "127.0.0.1")
         .config("spark.driver.host", "127.0.0.1")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "16")
+        .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
         .config("spark.default.parallelism", str(cores * 2))
-        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.enabled", str(adaptive).lower())
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         .config("spark.ui.enabled", "false")
         .getOrCreate()
