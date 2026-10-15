@@ -2,6 +2,7 @@ import argparse
 import sys
 import time
 from datetime import date
+from pathlib import Path
 
 from rail_risk.config import Settings, load_routes
 from rail_risk.logging import configure_logging, get_logger
@@ -188,6 +189,45 @@ def _build_features(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evaluate_baselines(args: argparse.Namespace) -> int:
+    from rail_risk.evaluation import (
+        complete_days,
+        evaluate,
+        load_bands,
+        load_snapshots,
+        load_split_config,
+        make_split,
+        write_reports,
+    )
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        cfg = load_split_config(args.split_file)
+        bands = load_bands(args.bands_file)
+        snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        routes = sorted(snaps["route_id"].unique())
+        days = complete_days(
+            settings.data_dir / "interim" / "hsp_manifest.sqlite", routes, cfg.windows_per_day
+        )
+        split = make_split([d for d in days if d in set(snaps["service_date"])], cfg)
+    except (ValueError, OSError) as exc:
+        log.error("evaluation_invalid", error=str(exc))
+        return 1
+    result = evaluate(snaps, split, bands, cfg)
+    write_reports(result, args.out)
+    log.info(
+        "baselines_scored",
+        train_days=len(split.train),
+        validation_days=len(split.validation),
+        test_days=len(split.test),
+        out=str(args.out),
+    )
+    return 0
+
+
 def _status() -> int:
     from rail_risk.status import darwin_status, hsp_status
 
@@ -221,6 +261,10 @@ def main(argv: list[str] | None = None) -> int:
     bf.add_argument("--start", type=date.fromisoformat, default=None)
     bf.add_argument("--end", type=date.fromisoformat, default=None)
     bf.add_argument("--skip-darwin", action="store_true")
+    ev = sub.add_parser("evaluate-baselines", help="score the baselines on validation and test")
+    ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
+    ev.add_argument("--out", type=Path, default=Path("reports"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -232,6 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         return _parse_darwin(args)
     if args.command == "build-features":
         return _build_features(args)
+    if args.command == "evaluate-baselines":
+        return _evaluate_baselines(args)
     if args.command == "rebuild-hsp":
         return _rebuild_hsp(args)
     if args.command == "status":

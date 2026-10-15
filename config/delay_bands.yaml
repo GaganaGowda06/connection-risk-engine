@@ -1,0 +1,4 @@
+# Delay bands in minutes, as the lower edge of each band: 0-14, 15-29, 30-59, 60-119, 120+.
+# PROVISIONAL: these follow the Delay Repay style tiers. Per-operator rules are checked in Stage 5.
+provisional: true
+lower_edges: [0, 15, 30, 60, 120]

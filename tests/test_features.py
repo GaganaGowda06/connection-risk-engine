@@ -184,6 +184,22 @@ def test_label_and_candidate_cancellation(spark, base):
     assert row["is_candidate_cancelled"] is False
 
 
+def test_reason_share_is_not_a_feature():
+    assert "reason_share_passed" not in FEATURE_COLUMNS
+
+
+def test_bank_holidays_come_from_the_fetched_file(spark):
+    from rail_risk.features.snapshots import load_bank_holidays
+
+    days = load_bank_holidays()
+    assert "2026-12-28" in days and "2026-12-26" not in days  # Boxing Day moved to Monday
+    day = date(2026, 12, 25)
+    rows, links = synthetic([day, date(2026, 12, 24)])
+    got = snapshot_rows(spark, rows, links)
+    assert got[(f"{day:%Y%m%d}0000000", 60)]["is_bank_holiday"] is True
+    assert got[("202612240000000", 60)]["is_bank_holiday"] is False
+
+
 def test_live_state_values_are_exact(spark):
     day = date(2026, 9, 14)
     # 40 min spacing: stops at 06:00 06:40 07:20 08:00 08:40 09:20 (EUS). Delays 1..6.
@@ -201,7 +217,6 @@ def test_live_state_values_are_exact(spark):
     assert r["stops_remaining"] == 2
     assert r["sched_minutes_remaining"] == 80.0  # 08:00 to 09:20
     assert r["n_stops_passed"] == 4
-    assert r["reason_share_passed"] == 0.25  # one reason code in four passed stops
     assert r["label_delay_min"] == 6.0
 
 
