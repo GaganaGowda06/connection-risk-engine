@@ -5,6 +5,7 @@ description = "Calibrated UK rail arrival-range and connection-risk service on o
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "confluent-kafka>=2.16.0",
     "httpx>=0.28.1",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.15.0",

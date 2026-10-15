@@ -19,7 +19,9 @@ def _check() -> int:
     log.info(
         "config_ok",
         routes=[r.id for r in routes.routes],
-        darwin_key_set=settings.rdm_darwin_key is not None,
+        darwin_credentials_set=(
+            settings.rdm_darwin_user is not None and settings.rdm_darwin_password is not None
+        ),
         hsp_key_set=settings.rdm_hsp_key is not None,
     )
     return 0
