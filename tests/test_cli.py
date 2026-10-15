@@ -138,3 +138,10 @@ def test_train_guard_blocks_the_report_below_the_threshold_or_on_a_dirty_tree(
     assert seen["sha"] == "a" * 40 and seen["dirty"] is dirty
     assert bool(written) is expect_report
     assert "run123" in capsys.readouterr().out
+
+
+def test_connection_command_rejects_bad_inputs(tmp_path):
+    base = ["connection", "--inbound-rid", "1", "--date", "2026-10-08", "--fare", "50",
+            "--ticket", "single"]  # fmt: skip
+    assert main([*base, "--outbound-dep", "25:99"]) == 1  # not a clock time
+    assert main([*base, "--outbound-dep", "10:00", "--rules-file", str(tmp_path / "x.yaml")]) == 1
