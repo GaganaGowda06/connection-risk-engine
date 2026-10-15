@@ -46,7 +46,7 @@ def hsp_status(manifest_path: Path) -> list[str]:
         db.close()
 
 
-def darwin_status(root: Path) -> list[str]:
+def darwin_status(root: Path, interim: Path | None = None) -> list[str]:
     files = sorted(root.glob("*/*.jsonl.gz"), key=lambda p: p.stat().st_mtime)
     if not files:
         return ["no capture files yet"]
@@ -55,8 +55,28 @@ def darwin_status(root: Path) -> list[str]:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     today_files = list((root / today).glob("*.jsonl.gz"))
     today_bytes = sum(p.stat().st_size for p in today_files)
-    return [
+    lines = [
         f"newest file: {newest.relative_to(root)}",
         f"age: {age_min:.1f} min since last write, size: {newest.stat().st_size / 1e6:.2f} MB",
         f"today (UTC) total: {today_bytes / 1e6:.1f} MB in {len(today_files)} files",
     ]
+    manifest = (interim or Path()) / "darwin_manifest.sqlite"
+    if interim is not None and manifest.exists():
+        db = sqlite3.connect(f"file:{manifest}?mode=ro", uri=True)
+        try:
+            n, sched, events, assoc, quar, dups, lost, last = db.execute(
+                "SELECT COUNT(*), COALESCE(SUM(schedules),0), COALESCE(SUM(events),0), "
+                "COALESCE(SUM(associations),0), "
+                "COALESCE(SUM(q_schedules+q_events+q_associations+q_messages),0), "
+                "COALESCE(SUM(duplicates),0), COALESCE(SUM(bytes_lost),0), MAX(parsed_at) "
+                "FROM files"
+            ).fetchone()
+        finally:
+            db.close()
+        lines.append(
+            f"parsed: {n} files, schedules={sched}, events={events}, associations={assoc}, "
+            f"quarantined={quar}, duplicates_removed={dups}, bytes_lost={lost}, last={last}"
+        )
+    else:
+        lines.append("parsed: nothing yet (run rail-risk parse-darwin)")
+    return lines

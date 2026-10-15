@@ -1,23 +1,17 @@
 """Parse HSP serviceDetails into one row per service per stop, and validate at the boundary.
 
 Times in HSP are HHMM strings in Europe/London local time, with an empty string for missing
-values. They are stored as timezone-aware UTC timestamps. `date_of_service` stays a plain
-service date.
-
-Daylight saving: an ambiguous local time (the repeated hour when clocks go back, for example
-2026-10-25 01:30) is read as the first occurrence (BST) unless that would put the time before the
-previous event of the same service, in which case it is read as the second (GMT). A
-non-existent local time (clocks go forward, for example 2026-03-29 01:30) is read with the
-offset in force before the change, so it lands at the same UTC instant as the wall clock
-(01:30Z, which is 02:30 BST), a shift forward by the length of the gap.
+values. They are stored as timezone-aware UTC timestamps (daylight saving rules are in
+`rail_risk.ingest.times`). `date_of_service` stays a plain service date.
 """
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandera.pandas as pa
+
+from rail_risk.ingest.times import ROLLOVER_MIN_DROP, nearest_day, to_utc
 
 COLUMNS = [
     "rid",
@@ -33,22 +27,6 @@ COLUMNS = [
     "candidate_cancelled",
 ]
 MAX_ACTUAL_DEVIATION = pd.Timedelta(hours=6)
-LONDON = ZoneInfo("Europe/London")
-# a backwards step in the scheduled chain larger than this is midnight, smaller is a clock change
-ROLLOVER_MIN_DROP = timedelta(hours=3)
-
-
-def to_utc(local: datetime, floor: datetime | None = None) -> datetime:
-    """Europe/London wall clock (naive) to aware UTC. See the module docstring for DST rules."""
-    first = local.replace(tzinfo=LONDON, fold=0)
-    second = local.replace(tzinfo=LONDON, fold=1)
-    utc_first = first.astimezone(UTC)
-    utc_second = second.astimezone(UTC)
-    # ambiguous: the second occurrence is later in UTC. Non-existent: fold 0 already uses the
-    # pre-change offset, which is the documented reading.
-    if utc_second > utc_first and floor is not None and utc_first < floor:
-        return utc_second
-    return utc_first
 
 
 def _hhmm(value: str | None) -> time | None:
@@ -57,13 +35,6 @@ def _hhmm(value: str | None) -> time | None:
     if len(value) != 4 or not value.isdigit():
         raise ValueError(f"bad time {value!r}")
     return time(int(value[:2]), int(value[2:]))
-
-
-def _nearest(t: time, anchor: datetime) -> datetime:
-    """The datetime with clock time t on the day (anchor-1, anchor, anchor+1) closest to anchor."""
-    base = datetime.combine(anchor.date(), t)
-    options = [base + timedelta(days=d) for d in (-1, 0, 1)]
-    return min(options, key=lambda dt: abs(dt - anchor))
 
 
 def parse_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -107,7 +78,7 @@ def parse_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 local[key] = resolved[key] = None
                 continue
             anchor = local[sched_key] or actual_prev or sched_prev
-            dt = _nearest(t, anchor)
+            dt = nearest_day(t, anchor)
             utc = to_utc(dt, actual_prev_utc)
             local[key], resolved[key] = dt, utc
             actual_prev, actual_prev_utc = dt, utc

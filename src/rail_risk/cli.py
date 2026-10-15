@@ -121,6 +121,38 @@ def _rebuild_hsp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_darwin(args: argparse.Namespace) -> int:
+    import os
+
+    from rail_risk.ingest.darwin import DarwinManifest, parse_directory
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+    except ValueError as exc:
+        log.error("config_invalid", error=str(exc))
+        return 1
+    os.nice(10)  # the capture and the backfill are running; stay out of their way
+    interim = settings.data_dir / "interim"
+    manifest = DarwinManifest(interim / "darwin_manifest.sqlite")
+    try:
+        results = parse_directory(
+            settings.data_dir / "raw" / "darwin", interim, manifest, only_date=args.date
+        )
+    finally:
+        manifest.close()
+    log.info(
+        "parse_summary",
+        files=len(results),
+        seconds=round(sum(r.seconds for r in results), 1),
+        bytes_lost=sum(r.stats.bytes_lost for r in results),
+        duplicates=sum(r.stats.duplicates for r in results),
+    )
+    return 0
+
+
 def _status() -> int:
     from rail_risk.status import darwin_status, hsp_status
 
@@ -133,7 +165,7 @@ def _status() -> int:
     for line in hsp_status(data_dir / "interim" / "hsp_manifest.sqlite"):
         print(f"  {line}")
     print("Darwin")
-    for line in darwin_status(data_dir / "raw" / "darwin"):
+    for line in darwin_status(data_dir / "raw" / "darwin", data_dir / "interim"):
         print(f"  {line}")
     return 0
 
@@ -148,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--end", type=date.fromisoformat, required=True)
     ing.add_argument("--hours", type=_hours, default=range(6, 22))
     ing.add_argument("--newest-first", action="store_true")
+    pd_ = sub.add_parser("parse-darwin", help="parse closed Darwin hourly files into Parquet")
+    pd_.add_argument("--date", type=date.fromisoformat, default=None)
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -155,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
         return _check()
     if args.command == "ingest-hsp":
         return _ingest_hsp(args)
+    if args.command == "parse-darwin":
+        return _parse_darwin(args)
     if args.command == "rebuild-hsp":
         return _rebuild_hsp(args)
     if args.command == "status":

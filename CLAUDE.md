@@ -8,6 +8,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Test: `uv run pytest`
 - Lint: `uv run ruff check . && uv run ruff format --check .`
 - Run: `uv run rail-risk check`
+- Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
 ## Committing
 - One-time: `uv run pre-commit install`
