@@ -18,6 +18,9 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Serve: `uv run rail-risk serve` (localhost:8000; loads model alias `champion`, set with `rail-risk promote --run-id RUN`)
   - `curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610158700587","fare":50,"ticket":"single"}'`
   - `curl -s localhost:8000/health`
+- UI: start `rail-risk serve`, then `uv run rail-risk ui` (Streamlit on localhost:8501, calls the API at `RAIL_API_URL`, default http://127.0.0.1:8000)
+- Bench: `uv run python scripts/bench_api.py` (p50 and p95 against a running API; never part of CI)
+- Tip: run `rail-risk parse-darwin` before `serve`; unparsed closed hours are parsed at startup and add about 8 s
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 

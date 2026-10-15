@@ -15,8 +15,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from rail_risk.api.schemas import Health, RiskRequest, RiskResponse
+from rail_risk.api.schemas import (
+    Health,
+    RiskRequest,
+    RiskResponse,
+    RouteItem,
+    ServiceItem,
+    Warming,
+)
 from rail_risk.api.service import NotFound, RiskService
+from rail_risk.api.service import Warming as WarmingError
 from rail_risk.logging import get_logger
 
 REQUEST_BUDGET_SECONDS = 2.0
@@ -34,22 +42,29 @@ def create_app(
     """`service_factory` builds the RiskService at startup, so the model, Darwin state and
     feature service are loaded once. Tests pass a factory over fixture data."""
     log = get_logger("api")
-    state: dict[str, Any] = {"service": None, "task": None}
+    state: dict[str, Any] = {"service": None, "task": None, "wake": None}
 
     async def refresher(service: RiskService) -> None:
+        """Rebuild state every `refresh_seconds`, or at once when a request missed the cache."""
         loop = asyncio.get_running_loop()
+        first = True
         while True:
             try:
-                await loop.run_in_executor(None, service.store.refresh)
+                if not first:
+                    await loop.run_in_executor(None, service.store.refresh)
                 await loop.run_in_executor(None, service.refresh_features)
+                first = False
             except Exception as exc:  # noqa: BLE001 - a bad refresh must not stop serving
                 log.error("refresh_failed", error=repr(exc))
-            await asyncio.sleep(refresh_seconds)
+            state["wake"].clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(state["wake"].wait(), timeout=refresh_seconds)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         loop = asyncio.get_running_loop()
         state["service"] = await loop.run_in_executor(None, service_factory)
+        state["wake"] = asyncio.Event()
         if refresh_seconds > 0:
             state["task"] = asyncio.create_task(refresher(state["service"]))
         yield
@@ -100,8 +115,25 @@ def create_app(
             watched_services=len(service.active_rids()),
         )
 
-    @app.post("/risk", response_model=RiskResponse)
-    async def risk(body: RiskRequest, request: Request) -> RiskResponse:
+    @app.get("/routes", response_model=list[RouteItem])
+    async def routes() -> list[RouteItem]:
+        service: RiskService = state["service"]
+        return [
+            RouteItem(
+                id=r.id, origin=r.origin, destination=r.destination,
+                model_trained_on_route=r.id in service.route_model_trained_on,
+            )
+            for r in service.routes
+        ]  # fmt: skip
+
+    @app.get("/services", response_model=list[ServiceItem])
+    async def services(route: str = "bhm-eus") -> list[ServiceItem]:
+        """Services due at the route destination in the next three hours, soonest first."""
+        service: RiskService = state["service"]
+        return [ServiceItem(**s) for s in service.services(route)]
+
+    @app.post("/risk", response_model=RiskResponse, responses={202: {"model": Warming}})
+    async def risk(body: RiskRequest, request: Request) -> RiskResponse | JSONResponse:
         service: RiskService = state["service"]
         loop = asyncio.get_running_loop()
         call = lambda: service.risk(  # noqa: E731
@@ -109,6 +141,19 @@ def create_app(
         )
         try:
             return await asyncio.wait_for(loop.run_in_executor(None, call), timeout=budget_seconds)
+        except WarmingError as exc:
+            if state["wake"] is not None:
+                state["wake"].set()  # build this service now rather than at the next tick
+            body = Warming(
+                request_id=request.state.request_id, rid=exc.rid,
+                retry_after_seconds=exc.retry_after,
+                detail="features for this service are being built; retry shortly",
+            )  # fmt: skip
+            return JSONResponse(
+                status_code=202,
+                content=body.model_dump(),
+                headers={"Retry-After": str(exc.retry_after)},
+            )
         except NotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         except TimeoutError:
@@ -121,7 +166,14 @@ def create_app(
 
 
 def default_service() -> RiskService:
-    """Production wiring: champion model by alias, Darwin state from data/, Spark features."""
+    """Production wiring: champion model by alias, Darwin state from data/, Spark features.
+
+    The slow parts are independent, so they run concurrently: loading the Darwin state, starting
+    Spark with the history labels, and loading the model. The first feature batch needs the first
+    two only, so it starts as soon as they finish, while the model may still be loading.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     from rail_risk.config import Settings, load_routes
     from rail_risk.evaluation import load_bands
     from rail_risk.live import FeatureService, LiveStore, load_tiplocs
@@ -134,19 +186,38 @@ def default_service() -> RiskService:
     data = settings.data_dir
     bands = load_bands(Path("config/delay_bands.yaml"))
     store = LiveStore(data / "interim", data / "raw" / "darwin", load_tiplocs())
-    store.refresh()
-    spark = build_spark("risk-api", cores=2, driver_memory="2g", shuffle_partitions=2,
-                        adaptive=False)  # fmt: skip
-    features = FeatureService(spark, data / "interim", settings.routes_file)
+
+    def load_state() -> LiveStore:
+        store.refresh()
+        return store
+
+    def start_features() -> FeatureService:
+        spark = build_spark(
+            "risk-api", cores=2, driver_memory="2g", shuffle_partitions=2, adaptive=False
+        )
+        return FeatureService(spark, data / "interim", settings.routes_file)
+
+    def load_model():
+        try:
+            loaded = registry.load_alias(Path(os.environ.get("RAIL_MLFLOW_DIR", "mlruns")))
+        except Exception as exc:  # noqa: BLE001 - any load failure falls back to the baseline
+            log.error("model_load_failed", error=repr(exc))
+            return None
+        return loaded
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_state, f_feat, f_model = (
+            pool.submit(load_state), pool.submit(start_features), pool.submit(load_model)
+        )  # fmt: skip
+        f_state.result()
+        features = f_feat.result()
+        loaded = f_model.result()
     bundle = baseline = run_id = version = None
     trained_on: set[str] = set()
-    try:
-        loaded = registry.load_alias(Path(os.environ.get("RAIL_MLFLOW_DIR", "mlruns")))
+    if loaded is not None:
         bundle, baseline = loaded.bundle, loaded.baseline
         run_id, version = loaded.run_id, loaded.version
         trained_on = set(bundle.quantile.chosen.design.categories.get("route_id", []))
-    except Exception as exc:  # noqa: BLE001 - any load failure falls back to the baseline
-        log.error("model_load_failed", error=repr(exc))
     service = RiskService(
         store=store, features=features, routes=load_routes(settings.routes_file).routes,
         bands=bands, rules=load_rules(Path("config/delay_repay.yaml")), bundle=bundle,

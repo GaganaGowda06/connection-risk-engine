@@ -73,6 +73,7 @@ class LiveStore:
     newest_message_ts: datetime | None = None
     _lines_done: dict[str, int] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _by_rid: dict[str, pd.DataFrame] | None = None  # rebuilt after events change
 
     # reading
 
@@ -118,6 +119,7 @@ class LiveStore:
             return
         merged = pd.concat([self.events, df], ignore_index=True) if len(self.events) else df.copy()
         self.events = merged.drop_duplicates(DEDUP_KEY, keep="last").reset_index(drop=True)
+        self._by_rid = None
 
     def _read_tail(self, path: Path, key: str, stats: RefreshStats) -> None:
         """Parse the lines of a raw hourly file not yet seen. Read-only and tolerant of a
@@ -189,8 +191,16 @@ class LiveStore:
             return None
         return max(0.0, (now - self.newest_message_ts).total_seconds() / 60.0)
 
+    def _events_of(self, rid: str) -> pd.DataFrame:
+        """Events of one service, from an index rebuilt only when the events change."""
+        index = self._by_rid
+        if index is None:
+            index = {r: g for r, g in self.events.groupby("rid", sort=False)}
+            self._by_rid = index
+        return index.get(rid, self.events.iloc[0:0])
+
     def has(self, rid: str) -> bool:
-        return bool((self.events["rid"] == rid).any()) or rid in self.schedules
+        return rid in self.schedules or not self._events_of(rid).empty
 
     def stop_table(self, rid: str) -> pd.DataFrame:
         """The service's calling points in the HSP stop schema, from the latest Darwin messages.
@@ -198,7 +208,7 @@ class LiveStore:
         Forecasts are not actuals: an actual time exists only where Darwin reported one. Passing
         points are dropped. A location with a mapped CRS code uses it, others keep the TIPLOC.
         """
-        ev = self.events[self.events["rid"] == rid]
+        ev = self._events_of(rid)
         ev = ev[ev["event_type"].isin(["arr", "dep"])]
         if ev.empty:
             return pd.DataFrame(columns=STOP_COLUMNS)

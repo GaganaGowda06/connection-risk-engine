@@ -1,5 +1,5 @@
 import re
-import time
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -89,15 +89,66 @@ def test_happy_path_returns_ranges_probabilities_and_payout(tmp_path, features, 
         assert body["request_id"] == r.headers["x-request-id"]
 
 
-def test_cache_miss_builds_features_on_demand_with_the_same_answer(tmp_path, features, bundle_pair):
-    warm = make_service(tmp_path, features, bundle_pair)
-    cold = make_service(tmp_path, features, bundle_pair, warm=False)
-    with client_for(warm) as a, client_for(cold, budget_seconds=120) as b:
-        x, y = post(a, fare=50).json(), post(b, fare=50).json()
-        for key in ("arrival_range_80", "p_delay_at_least_15", "median_delay_minutes"):
-            assert x[key] == y[key]
-        assert x["data_quality"]["features_age_seconds"] >= 0.0  # read from the cache
-        assert y["data_quality"]["features_age_seconds"] == 0.0  # built for this request
+def test_cache_miss_returns_202_warming_then_the_answer_once_built(tmp_path, features, bundle_pair):
+    service = make_service(tmp_path, features, bundle_pair, warm=False)
+    with client_for(service) as c:
+        r = post(c, fare=50)
+        assert r.status_code == 202
+        assert r.headers["retry-after"] == "2"
+        body = r.json()
+        assert body["status"] == "warming" and body["rid"] == RID
+        assert body["retry_after_seconds"] == 2 and body["request_id"] == r.headers["x-request-id"]
+        assert service._queue[0] == RID  # at the front of the refresher queue
+        assert post(c, fare=50).status_code == 202  # still not built, and not queued twice
+        assert service._queue.count(RID) == 1
+        service.refresh_features()  # what the refresher does when woken
+        ok = post(c, fare=50)
+        assert ok.status_code == 200 and RANGE.match(ok.json()["arrival_range_80"])
+        assert service._queue == []
+
+
+def test_queued_rids_are_built_ahead_of_the_rest(tmp_path, features, bundle_pair):
+    service = make_service(tmp_path, features, bundle_pair, warm=False)
+    order = []
+    real = service._compute
+
+    def spy(rids, stale):
+        order.append(list(rids))
+        return real(rids, stale)
+
+    service._compute = spy
+    service.queue_front("202610150000009")
+    service.queue_front(RID)
+    assert service._queue == [RID, "202610150000009"]
+    service.refresh_features()
+    assert order[0] == [RID, "202610150000009"]  # a batch of its own, before the full batch
+    assert len(order) == 2
+
+
+def test_a_service_that_cannot_be_built_is_404_not_endless_warming(tmp_path, bundle_pair, spark):
+    class Empty:
+        def batch(self, services):
+            return {}
+
+    service = make_service(tmp_path, Empty(), bundle_pair, warm=False)
+    with client_for(service) as c:
+        assert post(c).status_code == 202
+        service.refresh_features()
+        r = post(c)
+        assert r.status_code == 404 and "could not be built" in r.json()["detail"]
+
+
+def test_services_and_routes_endpoints(tmp_path, features, bundle_pair):
+    with client_for(make_service(tmp_path, features, bundle_pair)) as c:
+        items = c.get("/services?route=bhm-eus").json()
+        assert [i["rid"] for i in items] == [RID]
+        item = items[0]
+        assert item["scheduled_arrival"] and item["minutes_to_arrival"] == 45
+        assert item["started"] is True and item["cancelled"] is False and item["toc"] == "VT"
+        assert c.get("/services?route=bhm-man").json() == []
+        routes = {r["id"]: r for r in c.get("/routes").json()}
+        assert routes["bhm-eus"]["model_trained_on_route"] is True
+        assert routes["ast-bhm"]["model_trained_on_route"] is False
 
 
 def test_no_fare_gives_no_amount_with_a_reason(tmp_path, features, bundle_pair):
@@ -211,18 +262,25 @@ def test_health_reports_model_alias_run_and_data_age(tmp_path, features, bundle_
         assert h["stale_live_data"] is False
 
 
-def test_slow_request_hits_the_budget_and_returns_504(tmp_path, features, bundle_pair, monkeypatch):
+def test_a_blocked_cached_path_hits_the_budget_and_returns_504(
+    tmp_path, features, bundle_pair, monkeypatch
+):
+    """The feature lookup is replaced by one that blocks until released, so the request can only
+    end by timing out. No wall-clock thresholds are involved."""
     service = make_service(tmp_path, features, bundle_pair)
-    real = service.risk
+    release = threading.Event()
 
-    def slow(*a, **k):
-        time.sleep(0.5)
-        return real(*a, **k)
+    def blocked(*args, **kwargs):
+        release.wait(timeout=30)
+        raise AssertionError("released after the request timed out")
 
-    monkeypatch.setattr(service, "risk", slow)
-    with client_for(service, budget_seconds=0.1) as c:
-        r = post(c)
-        assert r.status_code == 504 and "no answer" in r.json()["detail"]
+    monkeypatch.setattr(service, "_features_for", blocked)
+    try:
+        with client_for(service, budget_seconds=0.05) as c:
+            r = post(c)
+            assert r.status_code == 504 and "no answer" in r.json()["detail"]
+    finally:
+        release.set()
 
 
 def test_logs_and_responses_carry_no_secrets(tmp_path, features, bundle_pair, monkeypatch):
@@ -230,22 +288,3 @@ def test_logs_and_responses_carry_no_secrets(tmp_path, features, bundle_pair, mo
     with client_for(make_service(tmp_path, features, bundle_pair)) as c:
         text = post(c, fare=50).text + c.get("/health").text
         assert "super-secret-key-value" not in text and "x-apikey" not in text.lower()
-
-
-def test_load_smoke_200_sequential_requests_p95(tmp_path, features, bundle_pair, capsys):
-    service = make_service(tmp_path, features, bundle_pair)
-    service.refresh_features()  # what the background refresher does every 30 seconds
-    times = []
-    with client_for(service) as c:
-        post(c, fare=20)  # warm the route
-        for i in range(200):
-            started = time.perf_counter()
-            r = post(c, fare=float(i % 50), ticket="return" if i % 2 else "single")
-            times.append(time.perf_counter() - started)
-            assert r.status_code == 200
-    times.sort()
-    p95 = times[int(0.95 * len(times)) - 1]
-    with capsys.disabled():
-        print(f"\nload smoke: 200 requests, p50 {times[100] * 1000:.0f} ms, "
-              f"p95 {p95 * 1000:.0f} ms, max {times[-1] * 1000:.0f} ms")  # fmt: skip
-    assert p95 < 2.0
