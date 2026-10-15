@@ -6,11 +6,14 @@ import pytest
 
 from rail_risk.evaluation import Bands, SplitConfig, make_split
 from rail_risk.features.snapshots import FEATURE_COLUMNS
+from rail_risk.lateness import group_labels, lateness_base, lateness_groups, merge_groups
 from rail_risk.models.bands import IsotonicOvR, TemperatureScaler, choose_calibrator
 from rail_risk.models.pipeline import fit_all, guard, run_training, validation_halves
 from rail_risk.models.quantile import (
+    QuantileFit,
     apply_offset,
     conformal_offset,
+    fit_models,
     fit_quantile,
     sort_quantiles,
 )
@@ -87,7 +90,8 @@ def test_conformal_coverage_on_known_distribution():
     assert abs(coverage - 0.8) < 0.02
     assert float(np.mean(hi - lo)) > 0
     # the offset is per horizon and the median is the point forecast
-    assert set(fit.offsets) == {60}
+    assert set(fit.global_offsets) == {60}
+    assert set(fit.offsets) == {(60, 0)}  # no lateness column: one group
 
 
 def test_calibrated_probabilities_sum_to_one():
@@ -165,8 +169,9 @@ def test_run_is_deterministic_and_blind_to_test_labels():
     altered = df.copy()
     altered.loc[altered["service_date"].isin(split.test), "label_delay_min"] += 300.0
     c, fit_c = run_training(altered, split, BANDS, EVAL_CFG, CFG)
-    for key in ("params", "best_iteration", "conformal_offsets", "band_calibration",
-                "band_calibration_cv_log_loss", "grid"):  # fmt: skip
+    for key in ("params", "best_iteration", "conformal_offsets", "global_offsets",
+                "target_by_horizon", "group_merges", "calibration_comparison",
+                "band_calibration", "band_calibration_cv_log_loss", "grid"):  # fmt: skip
         assert c["model"][key] == a["model"][key], key
     assert (fit_c.quantile.predict(rows)[1] == fit_a.quantile.predict(rows)[1]).all()
     assert c["results"]["model"]["validation"] == a["results"]["model"]["validation"]
@@ -178,7 +183,102 @@ def test_fit_all_returns_models_for_every_quantile_and_horizon():
     train = df[df["service_date"] < date(2026, 8, 9)]
     valid = df[df["service_date"] >= date(2026, 8, 9)]
     fitted = fit_all(train, valid, BANDS, CFG)
-    assert set(fitted.quantile.boosters) == {0.1, 0.5, 0.9}
-    assert set(fitted.quantile.offsets) == {120, 60, 15}
+    for fit in fitted.quantile.fits.values():
+        assert set(fit.boosters) == {0.1, 0.5, 0.9}
+        assert set(fit.global_offsets) == {120, 60, 15}
+        assert {h for h, _ in fit.offsets} == {120, 60, 15}
+    assert set(fitted.quantile.choice) == {120, 60, 15}
+    assert set(fitted.quantile.choice.values()) <= {"direct", "residual"}
     probs = fitted.bands.predict(valid)
     assert probs.shape == (len(valid), 5) and probs.sum(axis=1) == pytest.approx(1.0)
+
+
+def test_small_groups_merge_into_neighbour_and_are_logged():
+    mapping, merges = merge_groups({0: 200, 1: 400, 2: 12, 3: 5}, 30)
+    # 3 (n=5) joins 2 (n=12), then the merged 14 rows join the smaller neighbour, 0 or 1
+    assert mapping[2] == mapping[3]
+    assert merges[0] == ([3], [2])
+    assert len(merges) == 2 and merges[1][0] == [2, 3]
+    assert set(mapping.values()) == {0, 1}
+    assert mapping[0] == 0 and mapping[1] == 1
+    # nothing small: nothing merges
+    assert merge_groups({0: 50, 1: 60, 2: 31, 3: 30}, 30) == ({0: 0, 1: 1, 2: 2, 3: 3}, [])
+    # everything small: collapses to one group rather than looping
+    mapping, _ = merge_groups({0: 3, 1: 4, 2: 5, 3: 6}, 30)
+    assert set(mapping.values()) == {0}
+
+
+def test_lateness_groups_use_only_lateness_at_t():
+    df = pd.DataFrame({"last_stop_lateness_min": [None, -3.0, 0.0, 4.9, 5.0, 14.9, 15.0, 90.0]})
+    assert lateness_groups(df).tolist() == [0, 1, 1, 1, 2, 2, 3, 3]
+    assert group_labels() == ["not_started", "0-4", "5-14", "15+"]
+    assert "label_delay_min" not in df.columns  # the function needs no label
+
+
+def hetero(n: int, seed: int) -> pd.DataFrame:
+    """Noise scale grows with lateness at T, so a global offset under-covers the late group."""
+    rng = np.random.default_rng(seed)
+    late = np.where(rng.random(n) < 0.2, np.nan, rng.gamma(1.5, 6.0, n))
+    base = np.nan_to_num(late)
+    scale = np.where(np.isnan(late), 1.0, 0.5 + 0.35 * base)
+    y = base + rng.normal(0, 1, n) * scale
+    return pd.DataFrame(
+        {
+            "last_stop_lateness_min": late,
+            "horizon_min": 60,
+            "label_delay_min": y,
+            "service_date": [date(2026, 1, 1) + timedelta(days=int(i % 10)) for i in range(n)],
+        }
+    )
+
+
+def test_mondrian_coverage_is_nominal_within_each_group():
+    df = hetero(20_000 * 3, seed=21)
+    train, calib, test = df.iloc[:20_000], df.iloc[20_000:40_000], df.iloc[40_000:]
+    # the model is blind to lateness, so only the groupwise offsets can fix group coverage
+    fit, _ = fit_quantile(train, calib, calib, CFG, columns=["horizon_min"])
+    groups = lateness_groups(test)
+    y = test["label_delay_min"].to_numpy()
+    for mode in ("mondrian",):
+        _, lo, hi = fit.predict(test, mode)
+        for k in range(4):
+            m = groups == k
+            assert m.sum() > 500
+            assert abs(float(np.mean((y[m] >= lo[m]) & (y[m] <= hi[m]))) - 0.8) < 0.03, (mode, k)
+    # a single global offset is visibly off in at least one group on this data
+    _, glo, ghi = fit.predict(test, "global")
+    gaps = [
+        abs(
+            float(
+                np.mean((y[groups == k] >= glo[groups == k]) & (y[groups == k] <= ghi[groups == k]))
+            )
+            - 0.8
+        )
+        for k in range(4)
+    ]
+    assert max(gaps) > 0.03
+
+
+def test_residual_target_reconstructs_delay_scale():
+    df = hetero(6_000, seed=3)
+    cols = ["last_stop_lateness_min", "horizon_min"]
+    train, calib = df.iloc[:4000], df.iloc[4000:]
+    fit, _ = fit_quantile(train, calib, calib, CFG, columns=cols, target="residual")
+    assert isinstance(fit, QuantileFit) and fit.target == "residual"
+    x = fit.design.transform(calib)
+    stored = np.column_stack([fit.boosters[q].predict(x) for q in fit.quantiles])
+    expected = np.sort(stored + lateness_base(calib)[:, None], axis=1)
+    assert fit.raw(calib) == pytest.approx(expected)
+    # not started falls back to a base of zero, so direct and residual agree on that scale
+    started = calib["last_stop_lateness_min"].notna().to_numpy()
+    assert (lateness_base(calib)[~started] == 0).all()
+    point, lo, hi = fit.predict(calib)
+    assert (lo <= point).all() and (point <= hi).all()
+
+
+def test_fit_models_keeps_the_better_target_per_horizon():
+    df = hetero(6_000, seed=8)  # y is close to lateness, so residual should win
+    cols = ["last_stop_lateness_min", "horizon_min"]
+    model, grids = fit_models(df.iloc[:4000], df.iloc[4000:], df.iloc[4000:], CFG, cols)
+    assert set(grids) == {"direct", "residual"}
+    assert model.choice[60] == min(model.tune_pinball, key=lambda t: model.tune_pinball[t][60])

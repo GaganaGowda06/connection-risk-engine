@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from rail_risk.lateness import group_labels, lateness_groups
+
 LOG_LOSS_EPS = 1e-15
 METRIC_NAMES = ("mae", "rmse", "coverage", "width", "brier", "log_loss")
 _SUMS = ("n", "abs", "sq", "n_int", "cov", "width", "n_band", "brier", "ll")
@@ -229,6 +231,43 @@ def score(
     return out
 
 
+def coverage_by_group(
+    dates: np.ndarray,
+    y: np.ndarray,
+    pred: Predictions,
+    bands: Bands,
+    group: np.ndarray,
+    labels: list[str],
+    *,
+    resamples: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+) -> dict[str, dict[str, float | None]]:
+    """Interval coverage and mean width within each group, with a date bootstrap CI.
+
+    `group` is an integer index into `labels`. By observed lateness it is the group the
+    conformal guarantee covers; by true delay band it is what passengers feel.
+    """
+    if pred.lo is None or pred.hi is None:
+        return {}
+    out: dict[str, dict[str, float | None]] = {}
+    for k, label in enumerate(labels):
+        mask = group == k
+        if not mask.any():
+            out[label] = {"value": None, "ci_low": None, "ci_high": None, "n": 0.0, "width": None}
+            continue
+        sub = Predictions(pred.point[mask], pred.lo[mask], pred.hi[mask])
+        r = score(
+            dates[mask], y[mask], sub, bands, resamples=resamples, seed=seed, confidence=confidence
+        )
+        out[label] = {
+            **r["coverage"],
+            "n": float(mask.sum()),
+            "width": float(r["width"]["value"]),
+        }
+    return out
+
+
 def coverage_by_band(
     dates: np.ndarray,
     y: np.ndarray,
@@ -243,21 +282,10 @@ def coverage_by_band(
 
     A model can reach nominal coverage overall and still miss the late trains, which are few.
     """
-    if pred.lo is None or pred.hi is None:
-        return {}
-    which = band_index(y, bands)
-    out: dict[str, dict[str, float | None]] = {}
-    for k, label in enumerate(bands.labels):
-        mask = which == k
-        if not mask.any():
-            out[label] = {"value": None, "ci_low": None, "ci_high": None, "n": 0.0}
-            continue
-        sub = Predictions(pred.point[mask], pred.lo[mask], pred.hi[mask])
-        r = score(
-            dates[mask], y[mask], sub, bands, resamples=resamples, seed=seed, confidence=confidence
-        )["coverage"]
-        out[label] = {**r, "n": float(mask.sum())}
-    return out
+    return coverage_by_group(
+        dates, y, pred, bands, band_index(y, bands), bands.labels,
+        resamples=resamples, seed=seed, confidence=confidence,
+    )  # fmt: skip
 
 
 # baselines
@@ -427,6 +455,9 @@ def evaluate(
                 kw = {"resamples": cfg.resamples, "seed": cfg.seed, "confidence": cfg.confidence}
                 cell = score(dates, y, pred, bands, **kw)
                 cell["coverage_by_band"] = coverage_by_band(dates, y, pred, bands, **kw)
+                cell["coverage_by_group"] = coverage_by_group(
+                    dates, y, pred, bands, lateness_groups(h), group_labels(), **kw
+                )
                 results[name][block][str(horizon)] = cell
     counts = {
         block: {
