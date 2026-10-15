@@ -7,6 +7,13 @@ nominal_coverage: 0.8
 # tunes and early-stops, the second half calibrates (conformal offsets, band calibration)
 split_validation_min_days: 10
 num_threads: 2
+# candidate targets: the delay itself, or the delay minus the lateness at T (persistence as floor).
+# Each is fitted with its own grid and the better one is kept per horizon by tuning pinball loss.
+targets: [direct, residual]
+# Mondrian CQR: offsets per horizon and observed lateness group at T (not started, 0-4, 5-14, 15+).
+# A group with fewer than min_rows calibration rows is merged into its neighbour and logged.
+mondrian:
+  min_rows: 30
 max_rounds: 400
 early_stopping_rounds: 30
 # 12 combinations, chosen by validation pinball loss. Strong regularisation on purpose.

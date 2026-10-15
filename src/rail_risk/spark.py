@@ -19,6 +19,7 @@ def build_spark(app_name: str = "rail-risk", *, cores: int = 4, driver_memory: s
         .appName(app_name)
         .config("spark.driver.memory", driver_memory)
         .config("spark.driver.bindAddress", "127.0.0.1")
+        .config("spark.driver.host", "127.0.0.1")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.shuffle.partitions", "16")
         .config("spark.default.parallelism", str(cores * 2))
