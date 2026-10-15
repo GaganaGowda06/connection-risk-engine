@@ -13,7 +13,8 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Build features: `uv run rail-risk build-features [--start D --end D]` (parses Darwin first)
 - Baselines: `uv run rail-risk evaluate-baselines` (writes reports/baselines.json and .md)
 - Train: `uv run rail-risk train` (smoke below `min_train_days`, logs to mlruns/mlflow.db, MLflow sqlite backend)
-- Connection: `uv run rail-risk connection --inbound-rid RID --outbound-dep HH:MM --date D --fare 50 --ticket single`
+- Connection: `uv run rail-risk connection --inbound-rid RID [--outbound-dep HH:MM] --date D --fare 50 --ticket single` (no outbound: first feasible)
+- Backtest: `uv run rail-risk backtest-connections` (ast-bhm inbound against bhm-eus outbound, writes reports/connection_backtest.json)
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 

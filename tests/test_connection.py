@@ -4,9 +4,13 @@ import pytest
 
 from rail_risk.connection import (
     FixedDelays,
+    InfeasibleConnection,
     OutboundDelays,
+    TailModel,
     Train,
     band_probabilities,
+    choose_outbound,
+    first_feasible,
     hhmm_to_minutes,
     inbound_delay_draws,
     journey_repay,
@@ -14,7 +18,7 @@ from rail_risk.connection import (
     minutes_to_hhmm,
     simulate,
 )
-from rail_risk.repay import RepayError, load_rules
+from rail_risk.repay import load_rules
 
 LEVELS = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95])
 EDGES = (0, 15, 30, 60, 120)
@@ -70,23 +74,30 @@ def test_p_miss_is_monotone_in_connection_time_and_in_inbound_lateness():
     assert by_late == sorted(by_late) and by_late[0] < by_late[-1]
 
 
-def test_no_catchable_alternative_is_stranded_not_a_number():
+def test_stranded_draws_count_in_the_top_tier_and_have_no_arrival():
+    rules = load_rules("config/delay_repay.yaml")
     r = run(flat(90.0), alts=[])
     assert r.stranded and r.p_stranded == 1.0 and r.p_miss == 1.0
-    assert r.delay_quantiles is None and r.band_probs is None and r.arrival_range() is None
-    with pytest.raises(RepayError, match="stranded"):
-        journey_repay(r, EDGES, "VT", "single", 50.0, load_rules("config/delay_repay.yaml"))
+    assert r.delay_quantiles is None and r.arrival_range() is None  # no arrival time to give
+    assert r.band_probs.tolist() == [0.0, 0.0, 0.0, 0.0, 1.0]  # priced in the top tier
+    pay = journey_repay(r, EDGES, "VT", "single", 50.0, rules)
+    assert pay.expected_payout == pytest.approx(50.0)  # 100% of a single in the 120+ tier
     # alternatives exist but all leave before the inbound can connect
-    gone = run(flat(200.0))
-    assert gone.stranded
+    assert run(flat(200.0)).stranded
 
 
-def test_partly_stranded_reports_the_share_and_conditions_on_completion():
-    q = spread(30.0, 40.0)  # the late end cannot reach the last alternative at 11:00
+def test_partly_stranded_is_unconditional_not_conditional_on_completing():
+    rules = load_rules("config/delay_repay.yaml")
+    q = spread(30.0, 40.0)  # the late end cannot reach the last alternative at 10:20
     r = run(q, alts=ALTS[:1])
     assert 0.0 < r.p_stranded < 1.0 and not r.stranded
     assert r.band_probs.sum() == pytest.approx(1.0)
     assert len(r.delays) == round((1 - r.p_stranded) * r.n_draws)
+    assert r.band_probs[-1] >= r.p_stranded - 1e-12  # stranded draws sit in the top band
+    unconditional = journey_repay(r, EDGES, "VT", "single", 50.0, rules).expected_payout
+    completed_only = band_probabilities(r.delays, EDGES)
+    cond = float(completed_only @ np.array([0.0, 12.5, 25.0, 50.0, 50.0]))
+    assert unconditional > cond  # stranded draws add the top tier, so conditional understated it
 
 
 def test_band_probabilities_sum_to_one_and_use_the_band_edges():
@@ -155,3 +166,67 @@ def test_clock_helpers():
     assert minutes_to_hhmm(24 * 60 + 5) == "00:05"
     with pytest.raises(ValueError):
         hhmm_to_minutes("25:00")
+
+
+def test_first_feasible_outbound_is_chosen_when_none_is_given():
+    trains = [Train(587.0, 666.0), Train(606.0, 737.0), Train(617.0, 698.0), Train(636.0, 770.0)]
+    assert first_feasible(580.0, trains, 10.0).sched_dep == 606.0  # 09:47 leaves only 7 min after
+    chosen = choose_outbound(580.0, trains, 10.0)
+    assert chosen.sched_dep == 606.0
+    assert first_feasible(580.0, trains, 7.0).sched_dep == 587.0  # a shorter change opens 09:47
+    assert first_feasible(700.0, trains, 10.0) is None
+    with pytest.raises(InfeasibleConnection, match="no outbound"):
+        choose_outbound(700.0, trains, 10.0)
+
+
+def test_infeasible_connection_is_refused_naming_the_first_feasible_train():
+    trains = [Train(587.0, 666.0), Train(606.0, 737.0)]  # 09:47 and 10:06
+    with pytest.raises(InfeasibleConnection) as err:
+        choose_outbound(580.0, trains, 10.0, planned_dep=587.0)
+    assert "infeasible on paper" in str(err.value) and "10:06" in str(err.value)
+    assert err.value.first_feasible.sched_dep == 606.0
+    assert choose_outbound(580.0, trains, 10.0, planned_dep=606.0).sched_dep == 606.0
+    assert choose_outbound(580.0, trains, 7.0, planned_dep=587.0).sched_dep == 587.0
+    with pytest.raises(InfeasibleConnection, match="no planned outbound"):
+        choose_outbound(580.0, trains, 10.0, planned_dep=600.0)
+
+
+def test_sensitivity_across_connection_times_is_monotone():
+    outbound = OutboundDelays({10: np.column_stack([np.arange(40) * 0.2, np.arange(40) * 0.4])})
+    q = spread(1.0, 8.0)
+    # inbound due 09:35, outbound 10:00: gap 25 min, so all four times are feasible
+    p = [run(q, mct=m, outbound=outbound, inbound_arr=575.0).p_miss for m in (5, 7, 10, 15)]
+    assert p == sorted(p) and p[0] < p[-1]
+    pay = []
+    rules = load_rules("config/delay_repay.yaml")
+    for m in (5, 7, 10, 15):
+        r = run(q, mct=m, outbound=outbound, inbound_arr=575.0)
+        pay.append(journey_repay(r, EDGES, "VT", "single", 50.0, rules).expected_payout)
+    assert pay == sorted(pay)
+
+
+def test_tail_sampler_uses_only_the_rows_it_is_given_and_extends_beyond_q95():
+    # training rows: outcomes 0 to 30 minutes above the top quantile in group 3, none in group 0
+    outcome = np.concatenate([np.full(50, 10.0) + np.arange(50) * 0.6, np.full(50, 5.0)])
+    top = np.concatenate([np.full(50, 10.0), np.full(50, 10.0)])
+    groups = np.array([3] * 50 + [0] * 50)
+    tail = TailModel.fit(outcome, top, groups)
+    assert tail.for_group(3).max() == pytest.approx(29.4)
+    assert len(tail.for_group(0)) == len(tail.pooled)  # no excesses: falls back to pooled
+    u = np.array([0.5, 0.96, 0.99, 0.9999])
+    x = inbound_delay_draws(LEVELS, spread(5.0, 12.0), u, tail.for_group(3))
+    top_q = spread(5.0, 12.0)[-1]
+    assert x[0] == pytest.approx(5.0)
+    assert (np.diff(x) >= 0).all() and x[-1] > top_q + 25  # far beyond the linear segment
+    linear = inbound_delay_draws(LEVELS, spread(5.0, 12.0), u)
+    assert linear[-1] < x[-1]
+    # altering a row that was not passed in cannot change the fit
+    again = TailModel.fit(outcome[:50], top[:50], groups[:50])
+    assert np.array_equal(again.for_group(3), tail.for_group(3))
+
+
+def test_tail_model_changes_the_long_delay_probability():
+    tail = np.linspace(1.0, 80.0, 200)
+    with_tail = run(spread(0.0, 6.0), tail=tail, alts=[], seed=3, draws=4000)
+    without = run(spread(0.0, 6.0), alts=[], seed=3, draws=4000)
+    assert with_tail.band_probs[-1] >= without.band_probs[-1]
