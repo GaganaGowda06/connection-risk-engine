@@ -260,83 +260,52 @@ def _train(args: argparse.Namespace) -> int:
 
 
 def _connection(args: argparse.Namespace) -> int:
-    import sqlite3
-
-    import pandas as pd
-
+    from rail_risk.backtest import day_outbounds, load_context, train_of
     from rail_risk.connection import (
-        OutboundDelays,
-        Train,
+        InfeasibleConnection,
+        choose_outbound,
         hhmm_to_minutes,
         journey_repay,
-        load_stations,
         minutes_to_hhmm,
-        service_table,
         simulate,
         to_local_minutes,
     )
-    from rail_risk.evaluation import (
-        complete_days,
-        load_bands,
-        load_snapshots,
-        load_split_config,
-        make_split,
-    )
-    from rail_risk.models.pipeline import fit_for_inference, load_train_config
-    from rail_risk.repay import RepayError, load_rules
+    from rail_risk.evaluation import load_bands  # noqa: F401
+    from rail_risk.lateness import lateness_groups
+    from rail_risk.repay import RepayError
 
     log = get_logger()
     try:
         settings = Settings()
         configure_logging(settings.log_level, settings.log_json)
         log = get_logger()
-        cfg = load_train_config(args.config)
-        eval_cfg = load_split_config(args.split_file)
-        bands = load_bands(args.bands_file)
-        station = load_stations(args.stations_file)[args.hub]
-        rules = load_rules(args.rules_file)
-        planned_min = hhmm_to_minutes(args.outbound_dep)
-        snaps = load_snapshots(settings.data_dir / "features" / "snapshots")
+        planned_min = hhmm_to_minutes(args.outbound_dep) if args.outbound_dep else None
+        ctx = load_context(
+            settings.data_dir,
+            config=args.config,
+            split_file=args.split_file,
+            bands_file=args.bands_file,
+            stations_file=args.stations_file,
+            rules_file=args.rules_file,
+            hub=args.hub,
+            destination=args.dest,
+        )
     except (ValueError, OSError, KeyError) as exc:
         log.error("connection_invalid", error=str(exc))
         return 1
 
-    # the model is fitted on the train block and calibrated on validation, never on test
-    model_snaps = snaps[snaps["route_id"].isin(eval_cfg.routes)] if eval_cfg.routes else snaps
-    manifest = settings.data_dir / "interim" / "hsp_manifest.sqlite"
-    days = complete_days(
-        manifest, sorted(model_snaps["route_id"].unique()), eval_cfg.windows_per_day
-    )
-    split = make_split([d for d in days if d in set(model_snaps["service_date"])], eval_cfg)
-    row = snaps[
-        (snaps["rid"] == args.inbound_rid)
-        & (snaps["service_date"] == args.date)
-        & (snaps["horizon_min"] == args.horizon)
+    station, bands = ctx.station, ctx.bands
+    row = ctx.snaps[
+        (ctx.snaps["rid"] == args.inbound_rid)
+        & (ctx.snaps["service_date"] == args.date)
+        & (ctx.snaps["horizon_min"] == args.horizon)
     ]
     if row.empty:
         log.error("connection_invalid", error="no snapshot for that rid, date and horizon")
         return 1
     row = row.iloc[[0]]
-    fitted = fit_for_inference(model_snaps, split, bands, cfg)
-    levels, quantiles = fitted.quantile.distribution(row)
-
-    # schedule and history: bhm-eus services call at the hub and the destination
-    db = sqlite3.connect(f"file:{manifest}?mode=ro", uri=True)
-    try:
-        rids = {r[0] for r in db.execute("SELECT rid FROM rid_routes WHERE route='bhm-eus'")}
-    finally:
-        db.close()
-    # the unified file is what the feature build reads; per-file schemas differ for all-null columns
-    unified = settings.data_dir / "interim" / "_unified" / "hsp_stops.parquet"
-    columns = ["rid", "date_of_service", "toc_code", "location", "sched_arr", "sched_dep",
-               "actual_arr", "actual_dep"]  # fmt: skip
-    all_stops = pd.read_parquet(unified, columns=columns)
-    all_stops["_day"] = pd.to_datetime(all_stops["date_of_service"]).dt.date
-
-    def read_days(day_list):
-        return all_stops[all_stops["_day"].isin(set(day_list))]
-
-    day_stops = read_days([args.date])
+    levels, quantiles = ctx.fitted.quantile.distribution(row)
+    day_stops = ctx.all_stops[ctx.all_stops["_day"] == args.date]
     inbound = day_stops[
         (day_stops["rid"] == args.inbound_rid) & (day_stops["location"] == args.hub)
     ]
@@ -344,76 +313,155 @@ def _connection(args: argparse.Namespace) -> int:
         log.error("connection_invalid", error="inbound service has no stop at the hub that day")
         return 1
     inbound_arr = float(to_local_minutes(inbound["sched_arr"].iloc[[0]], args.date).iloc[0])
-    out_today = service_table(day_stops[day_stops["rid"].isin(rids)], args.hub, args.dest)
-    out_today = out_today.sort_values("sched_dep")
-    hit = out_today[(out_today["sched_dep"] - planned_min).abs() < 0.5]
-    if hit.empty:
-        log.error("connection_invalid", error="no planned outbound departs at that time")
+    table = day_outbounds(ctx, args.date, args.hub, args.dest)
+    trains = [train_of(r) for r in table.itertuples()]
+    try:
+        planned = choose_outbound(inbound_arr, trains, station.minutes, planned_min)
+    except InfeasibleConnection as exc:
+        print(f"refused: {exc}")
         return 1
-    later = out_today[out_today["sched_dep"] > hit["sched_dep"].iloc[0]].head(3)
+    chosen_note = "" if planned_min is not None else "  (first feasible outbound, none given)"
+    later = [t for t in trains if t.sched_dep > planned.sched_dep][:3]
+    group = int(lateness_groups(row)[0])
+    tail = ctx.tail.for_group(group)
+    from rail_risk.connection import OutboundDelays
 
-    def train_of(r):
-        return Train(float(r.sched_dep), float(r.sched_arr), str(r.toc))
-
-    planned = train_of(next(hit.iloc[[0]].itertuples()))
-    alternatives = [train_of(r) for r in later.itertuples()]
-    history = service_table(
-        read_days(split.train)[lambda d: d["rid"].isin(rids)], args.hub, args.dest
+    outbound = OutboundDelays.fit(ctx.history)
+    toc = args.toc or planned.toc
+    stranded_note = (
+        "stranded draws (no catchable train that day) are priced in the top tier, an assumption "
+        "that treats a stranded passenger as claiming the longest delay"
     )
-    result = simulate(
-        levels, quantiles[0], inbound_arr, planned, alternatives, station.minutes,
-        OutboundDelays.fit(history), bands.lower_edges, args.draws, cfg["seed"],
-    )  # fmt: skip
+
+    def run(mct: float):
+        return simulate(
+            levels, quantiles[0], inbound_arr, planned, later, mct, outbound,
+            bands.lower_edges, args.draws, ctx.cfg["seed"], tail,
+        )  # fmt: skip
+
+    def payout(result) -> str:
+        try:
+            r = journey_repay(result, bands.lower_edges, toc, args.ticket, args.fare, ctx.rules)
+        except RepayError as exc:
+            return f"not priced ({exc})"
+        return f"£{r.expected_payout:.2f}"
+
+    def arrival(result) -> str:
+        rng = result.arrival_range(0.1, 0.9)
+        if rng is None:
+            return "stranded, no arrival"
+        return f"{minutes_to_hhmm(rng[0])} to {minutes_to_hhmm(rng[1])}"
 
     h = args.horizon
+    gap = planned.sched_dep - inbound_arr
     print(
-        f"inbound {args.inbound_rid} on {args.date}, forecast made T-{h}, scheduled at "
-        f"{args.hub} {minutes_to_hhmm(inbound_arr)}"
+        f"inbound {args.inbound_rid} on {args.date}, forecast made T-{h}, due at {args.hub} "
+        f"{minutes_to_hhmm(inbound_arr)}"
     )
     print(
         f"outbound {minutes_to_hhmm(planned.sched_dep)} to {args.dest}, planned arrival "
-        f"{minutes_to_hhmm(planned.sched_arr)}; alternatives "
-        + (", ".join(minutes_to_hhmm(a.sched_dep) for a in alternatives) or "none")
+        f"{minutes_to_hhmm(planned.sched_arr)}, scheduled gap {gap:.0f} min{chosen_note}; "
+        f"alternatives " + (", ".join(minutes_to_hhmm(a.sched_dep) for a in later) or "none")
     )
     print(f"minimum connection time at {args.hub}: {station.minutes} min ({station.status})")
-    lo_q, med_q, hi_q = 0.1, 0.5, 0.9
-    print(f"P(miss): {result.p_miss:.3f}   P(stranded): {result.p_stranded:.3f}")
-    if result.stranded:
-        print("STRANDED: no draw reaches the destination; no arrival time or payout is given")
+    base = run(station.minutes)
+    print(f"P(miss): {base.p_miss:.3f}   P(stranded): {base.p_stranded:.3f}")
+    if base.stranded:
+        print("STRANDED: no draw reaches the destination; no arrival time is given")
     else:
-        lo, hi = result.arrival_range(lo_q, hi_q)
-        med = planned.sched_arr + result.delay_quantiles[med_q]
+        med = planned.sched_arr + base.delay_quantiles[0.5]
         print(
-            f"final arrival at {args.dest}: 80% range {minutes_to_hhmm(lo)} to "
-            f"{minutes_to_hhmm(hi)}, median {minutes_to_hhmm(med)}"
+            f"final arrival at {args.dest}: 80% range {arrival(base)}, median "
+            f"{minutes_to_hhmm(med)}"
+            + ("  (range excludes stranded draws)" if base.p_stranded > 0 else "")
         )
-        print(
-            "band probabilities: "
-            + ", ".join(
-                f"{lab} {p:.3f}" for lab, p in zip(bands.labels, result.band_probs, strict=True)
-            )
-        )
-        toc = args.toc or planned.toc
-        try:
-            r = journey_repay(result, bands.lower_edges, toc, args.ticket, args.fare, rules)
-            print(
-                f"expected Delay Repay on a £{args.fare:.2f} {args.ticket} ({toc}): "
-                f"£{r.expected_payout:.2f}"
-                + ("  [conditional on completing]" if result.p_stranded > 0 else "")
-            )
-            if r.caveat:
-                print(f"note: {r.caveat}")
-        except RepayError as exc:
-            print(f"expected Delay Repay: not priced ({exc})")
-    print(f"{result.n_draws} draws, seed {cfg['seed']}; legs are assumed independent")
+    print(
+        "band probabilities: "
+        + ", ".join(f"{lab} {p:.3f}" for lab, p in zip(bands.labels, base.band_probs, strict=True))
+    )
+    print(f"expected Delay Repay on a £{args.fare:.2f} {args.ticket} ({toc}): {payout(base)}")
+    print(f"  {stranded_note}")
+    print(
+        f"sensitivity to the {args.hub} minimum connection time (the {station.minutes} min "
+        f"figure is {station.status}):"
+    )
+    print("  mct   P(miss)   80% arrival range   expected payout")
+    for mct in (5, 7, 10, 15):
+        if gap < mct:
+            print(f"  {mct:>3}   infeasible on paper at this time (gap {gap:.0f} min), not scored")
+            continue
+        r = run(float(mct))
+        print(f"  {mct:>3}   {r.p_miss:>7.3f}   {arrival(r):<17}   {payout(r)}")
+    print(f"{base.n_draws} draws, seed {ctx.cfg['seed']}; legs are assumed independent")
     if station.status != "verified":
         print(f"note: the {args.hub} connection time is {station.status}: {station.comment}")
-    if args.inbound_rid and set(model_snaps["route_id"].unique()) != {str(row["route_id"].iloc[0])}:
+    try:
+        caveat = ctx.rules.operator(toc).caveat
+    except RepayError:
+        caveat = None
+    if caveat:
+        print(f"note: {caveat}")
+    fitted_on = sorted(ctx.model_snaps["route_id"].unique())
+    if str(row["route_id"].iloc[0]) not in fitted_on:
         print(
-            f"note: the delay model was fitted on {sorted(model_snaps['route_id'].unique())}, "
-            f"not on the inbound route {row['route_id'].iloc[0]}, so its accuracy there is "
-            "not validated"
+            f"note: the delay model was fitted on {fitted_on}, not on the inbound route "
+            f"{row['route_id'].iloc[0]}, so its accuracy there is not validated"
         )
+    return 0
+
+
+def _backtest(args: argparse.Namespace) -> int:
+    import json
+
+    from rail_risk.backtest import load_context, run_backtest
+    from rail_risk.spark import build_spark
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        ctx = load_context(
+            settings.data_dir,
+            config=args.config,
+            split_file=args.split_file,
+            bands_file=args.bands_file,
+            stations_file=args.stations_file,
+            rules_file=args.rules_file,
+        )
+    except (ValueError, OSError, KeyError) as exc:
+        log.error("backtest_invalid", error=str(exc))
+        return 1
+    result = run_backtest(
+        ctx, build_spark(), settings.routes_file, window=args.window, draws=args.draws
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+    print(
+        f"ast-bhm days used: {result['ast_bhm_days']}; pairs scored (feasible on paper, gap "
+        f"{result['min_connection_time']:.0f} to "
+        f"{result['min_connection_time'] + result['window_minutes']:.0f} min): "
+        f"{result['pairs']}, with a known outcome: {result['pairs_with_known_outcome']}"
+    )
+    print(
+        f"minimum connection time {result['min_connection_time']:.0f} min "
+        f"({result['min_connection_time_status']})"
+    )
+    for name, sc in result["scores"].items():
+        m, b = sc["model"], sc["baseline"]
+        flag = "  [baseline is in-sample: smoke test only]" if sc["baseline_in_sample"] else ""
+        print(
+            f"{name}: {sc['pairs']} pairs, miss rate {sc['miss_rate']:.3f}, "
+            f"mean predicted {sc['mean_predicted_miss']:.3f}; "
+            f"model Brier {m['brier']['value']:.3f} ECE {m['ece']['value']:.3f} vs "
+            f"baseline Brier {b['brier']['value']:.3f} ECE {b['ece']['value']:.3f}{flag}"
+        )
+        if sc["interval_coverage"] is not None:
+            print(
+                f"  80% arrival range covered {sc['interval_coverage']:.3f} of "
+                f"{sc['interval_pairs']} pairs, mean width {sc['interval_width_min']:.1f} min; "
+                f"{sc['stranded_realised']} realised strandings"
+            )
     return 0
 
 
@@ -502,7 +550,11 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--out", type=Path, default=Path("reports"))
     cn = sub.add_parser("connection", help="miss probability and expected payout for a connection")
     cn.add_argument("--inbound-rid", required=True)
-    cn.add_argument("--outbound-dep", required=True, help="planned outbound departure HH:MM")
+    cn.add_argument(
+        "--outbound-dep",
+        default=None,
+        help="planned outbound departure HH:MM; omitted: the first feasible one",
+    )
     cn.add_argument("--date", type=date.fromisoformat, required=True)
     cn.add_argument("--fare", type=float, required=True, help="fare in pounds, always supplied")
     cn.add_argument("--ticket", choices=["single", "return"], required=True)
@@ -516,6 +568,15 @@ def main(argv: list[str] | None = None) -> int:
     cn.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     cn.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
     cn.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
+    bt = sub.add_parser("backtest-connections", help="score connection predictions on history")
+    bt.add_argument("--window", type=float, default=20.0, help="minutes beyond the minimum time")
+    bt.add_argument("--draws", type=int, default=2000)
+    bt.add_argument("--out", type=Path, default=Path("reports/connection_backtest.json"))
+    bt.add_argument("--config", type=Path, default=Path("config/train.yaml"))
+    bt.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    bt.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
+    bt.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
+    bt.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -529,6 +590,8 @@ def main(argv: list[str] | None = None) -> int:
         return _build_features(args)
     if args.command == "train":
         return _train(args)
+    if args.command == "backtest-connections":
+        return _backtest(args)
     if args.command == "connection":
         return _connection(args)
     if args.command == "evaluate-baselines":

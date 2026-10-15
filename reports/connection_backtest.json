@@ -1,0 +1,78 @@
+{
+  "ast_bhm_days": 1,
+  "min_connection_time": 10.0,
+  "min_connection_time_status": "assumed",
+  "window_minutes": 20.0,
+  "pairs": 140,
+  "pairs_with_known_outcome": 130,
+  "scores": {
+    "T-60 before outbound": {
+      "pairs": 130,
+      "miss_rate": 0.07692307692307693,
+      "mean_predicted_miss": 0.42360384615384616,
+      "model": {
+        "brier": {
+          "value": 0.21735697115384617,
+          "ci_low": 0.21735697115384617,
+          "ci_high": 0.21735697115384617
+        },
+        "ece": {
+          "value": 0.3466807692307693,
+          "ci_low": 0.3466807692307693,
+          "ci_high": 0.3466807692307693
+        }
+      },
+      "baseline": {
+        "brier": {
+          "value": 0.062124542124542124,
+          "ci_low": 0.062124542124542124,
+          "ci_high": 0.062124542124542124
+        },
+        "ece": {
+          "value": 0.027838827838827837,
+          "ci_low": 0.027838827838827837,
+          "ci_high": 0.027838827838827837
+        }
+      },
+      "baseline_in_sample": true,
+      "interval_pairs": 130,
+      "interval_coverage": 0.9,
+      "interval_width_min": 61.547692307692316,
+      "stranded_realised": 0
+    },
+    "T-15 before outbound": {
+      "pairs": 130,
+      "miss_rate": 0.07692307692307693,
+      "mean_predicted_miss": 0.03599230769230769,
+      "model": {
+        "brier": {
+          "value": 0.06907264615384616,
+          "ci_low": 0.06907264615384616,
+          "ci_high": 0.06907264615384616
+        },
+        "ece": {
+          "value": 0.050692307692307696,
+          "ci_low": 0.050692307692307696,
+          "ci_high": 0.050692307692307696
+        }
+      },
+      "baseline": {
+        "brier": {
+          "value": 0.062124542124542124,
+          "ci_low": 0.062124542124542124,
+          "ci_high": 0.062124542124542124
+        },
+        "ece": {
+          "value": 0.027838827838827837,
+          "ci_low": 0.027838827838827837,
+          "ci_high": 0.027838827838827837
+        }
+      },
+      "baseline_in_sample": true,
+      "interval_pairs": 130,
+      "interval_coverage": 0.8923076923076924,
+      "interval_width_min": 25.801538461538467,
+      "stranded_realised": 0
+    }
+  }
+}

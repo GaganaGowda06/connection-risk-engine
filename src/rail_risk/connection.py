@@ -108,11 +108,15 @@ class FixedDelays(OutboundDelays):
 # inbound distribution
 
 
-def inbound_delay_draws(levels: np.ndarray, quantiles: np.ndarray, u: np.ndarray) -> np.ndarray:
-    """Inverse CDF by linear interpolation across the quantiles, extended linearly past the ends.
+def inbound_delay_draws(
+    levels: np.ndarray, quantiles: np.ndarray, u: np.ndarray, tail: np.ndarray | None = None
+) -> np.ndarray:
+    """Inverse CDF by linear interpolation across the quantiles.
 
-    Each tail is extended by at most one end segment (from the outermost quantile level to 0 or
-    1), so delays beyond the 0.95 quantile are bounded and the far right tail is understated.
+    Above the top level the draw is the top quantile plus a point on the empirical quantile
+    function of `tail`, the amounts by which training outcomes exceeded the top quantile. With no
+    tail it falls back to extending the last segment linearly, which understates long delays.
+    The lower end is extended linearly by one segment.
     """
     levels = np.asarray(levels, dtype=float)
     q = np.maximum.accumulate(np.asarray(quantiles, dtype=float))  # monotone
@@ -122,9 +126,42 @@ def inbound_delay_draws(levels: np.ndarray, quantiles: np.ndarray, u: np.ndarray
         slope = (q[1] - q[0]) / (levels[1] - levels[0])
         x[lo] = q[0] - (levels[0] - u[lo]) * slope
     if hi.any():
-        slope = (q[-1] - q[-2]) / (levels[-1] - levels[-2])
-        x[hi] = q[-1] + (u[hi] - levels[-1]) * slope
+        if tail is not None and len(tail) > 0:
+            position = (u[hi] - levels[-1]) / (1.0 - levels[-1])
+            x[hi] = q[-1] + np.quantile(np.sort(np.asarray(tail, dtype=float)), position)
+        else:
+            slope = (q[-1] - q[-2]) / (levels[-1] - levels[-2])
+            x[hi] = q[-1] + (u[hi] - levels[-1]) * slope
     return x
+
+
+class TailModel:
+    """Empirical excess over the top predicted quantile, per observed-lateness group.
+
+    Fitted from training rows only: for each row whose outcome exceeded its calibrated top
+    quantile, the excess is outcome minus quantile. A group with fewer than `min_rows` excesses
+    uses the pooled excesses of all groups.
+    """
+
+    def __init__(self, by_group: dict[int, np.ndarray], min_rows: int = 30) -> None:
+        arrays = [np.asarray(a, dtype=float) for a in by_group.values() if len(a)]
+        self.pooled = np.sort(np.concatenate(arrays)) if arrays else np.empty(0)
+        self.by_group = {
+            int(g): np.sort(np.asarray(a, dtype=float))
+            for g, a in by_group.items()
+            if len(a) >= min_rows
+        }
+
+    def for_group(self, group: int) -> np.ndarray:
+        return self.by_group.get(int(group), self.pooled)
+
+    @classmethod
+    def fit(
+        cls, outcome: np.ndarray, top_quantile: np.ndarray, groups: np.ndarray, min_rows: int = 30
+    ) -> "TailModel":
+        excess = np.asarray(outcome, dtype=float) - np.asarray(top_quantile, dtype=float)
+        by_group = {int(g): excess[(groups == g) & (excess > 0)] for g in np.unique(groups)}
+        return cls(by_group, min_rows)
 
 
 # simulation
@@ -137,7 +174,7 @@ class ConnectionResult:
     stranded: bool  # no draw reached the final stop: there is no arrival to describe
     n_draws: int
     delay_quantiles: dict[float, float] | None  # final arrival delay vs the planned arrival
-    band_probs: np.ndarray | None  # over delay bands, from completed journeys only
+    band_probs: np.ndarray | None  # over delay bands; stranded draws count in the top band
     delays: np.ndarray = field(repr=False, default_factory=lambda: np.empty(0))
     planned_arrival: float = 0.0
     min_connection_time: float = 0.0
@@ -163,6 +200,7 @@ def simulate(
     band_edges: Sequence[int] = (0, 15, 30, 60, 120),
     draws: int = DEFAULT_DRAWS,
     seed: int = DEFAULT_SEED,
+    tail: np.ndarray | None = None,
 ) -> ConnectionResult:
     """Monte Carlo over the inbound arrival and the outbound trains.
 
@@ -172,7 +210,7 @@ def simulate(
     """
     rng = np.random.default_rng(seed)
     u = rng.random(draws)
-    arrival = inbound_sched_arr + inbound_delay_draws(levels, quantiles, u)
+    arrival = inbound_sched_arr + inbound_delay_draws(levels, quantiles, u, tail)
     trains = [planned, *alternatives]
     dep_actual, arr_actual = [], []
     for train in trains:
@@ -190,6 +228,8 @@ def simulate(
         final[take] = arr_actual[i][take]
         completed |= take
     delays = (final - planned.sched_arr)[completed]
+    # a stranded draw has no arrival; for the payout it counts in the top tier (see the note)
+    all_delays = np.where(completed, final - planned.sched_arr, np.inf)
     p_stranded = float(1.0 - completed.mean())
     stranded = not completed.any()
     quantile_levels = (0.1, 0.5, 0.9)
@@ -201,7 +241,7 @@ def simulate(
         delay_quantiles=None
         if stranded
         else {q: float(np.quantile(delays, q)) for q in quantile_levels},
-        band_probs=None if stranded else band_probabilities(delays, band_edges),
+        band_probs=band_probabilities(all_delays, band_edges),
         delays=delays,
         planned_arrival=planned.sched_arr,
         min_connection_time=float(min_connection_time),
@@ -223,15 +263,70 @@ def journey_repay(
     fare: float,
     rules: DelayRepayRules,
 ) -> ExpectedRepay:
-    """Expected Delay Repay for the journey, conditional on completing it.
+    """Expected Delay Repay for the journey over all draws.
 
-    A stranded journey has no arrival delay to price, so it raises rather than returns a number.
+    Stranded draws (no catchable train that day) are priced in the top tier. That is an
+    assumption: it treats a stranded passenger as claiming the longest delay.
     """
-    from rail_risk.repay import RepayError
-
-    if result.stranded or result.band_probs is None:
-        raise RepayError("journey is stranded in every draw, so there is no arrival to price")
     return expected_repay(result.band_probs, tuple(lower_edges), toc, ticket, fare, rules)
+
+
+# feasibility
+
+
+class InfeasibleConnection(ValueError):
+    """The planned connection cannot be made on the timetable at the minimum connection time."""
+
+    def __init__(self, message: str, first_feasible: Train | None) -> None:
+        super().__init__(message)
+        self.first_feasible = first_feasible
+
+
+def first_feasible(
+    inbound_sched_arr: float, trains: Sequence[Train], min_connection_time: float
+) -> Train | None:
+    """The first outbound whose scheduled departure leaves at least the minimum connection time."""
+    for train in sorted(trains, key=lambda t: t.sched_dep):
+        if train.sched_dep - inbound_sched_arr >= min_connection_time:
+            return train
+    return None
+
+
+def choose_outbound(
+    inbound_sched_arr: float,
+    trains: Sequence[Train],
+    min_connection_time: float,
+    planned_dep: float | None = None,
+) -> Train:
+    """The outbound to use. None given: the first feasible. One given: it must be feasible.
+
+    An infeasible planned departure is refused with a message naming the first feasible train.
+    """
+    first = first_feasible(inbound_sched_arr, trains, min_connection_time)
+    if planned_dep is None:
+        if first is None:
+            raise InfeasibleConnection(
+                "no outbound departs after the minimum connection time", None
+            )
+        return first
+    match = [t for t in trains if abs(t.sched_dep - planned_dep) < 0.5]
+    if not match:
+        raise InfeasibleConnection("no planned outbound departs at that time", first)
+    chosen = match[0]
+    gap = chosen.sched_dep - inbound_sched_arr
+    if gap < min_connection_time:
+        named = (
+            f"the first feasible outbound departs {minutes_to_hhmm(first.sched_dep)}"
+            if first is not None
+            else "no later outbound is listed"
+        )
+        raise InfeasibleConnection(
+            f"infeasible on paper: the {minutes_to_hhmm(chosen.sched_dep)} leaves {gap:.0f} min "
+            f"after the inbound is due, less than the {min_connection_time:.0f} min minimum "
+            f"connection time; {named}",
+            first,
+        )
+    return chosen
 
 
 # data
