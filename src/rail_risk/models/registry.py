@@ -25,11 +25,20 @@ def register_champion(
     tracking_dir: Path, run_id: str, name: str = MODEL_NAME, alias: str = ALIAS
 ) -> str:
     """Register the run's `model` artefact as a new version and point the alias at it."""
-    mlflow, client = _client(tracking_dir)
+    _, client = _client(tracking_dir)
     run = client.get_run(run_id)
     if run.data.tags.get("stage") != "reportable":
         raise ValueError(f"run {run_id} is tagged {run.data.tags.get('stage')!r}, not reportable")
-    version = mlflow.register_model(f"runs:/{run_id}/model", name, tags={"run_id": run_id})
+    from mlflow.exceptions import MlflowException
+
+    try:
+        client.create_registered_model(name)
+    except MlflowException:  # already registered
+        pass
+    # the run's plain `model` artefact folder is the source; it is not an MLflow logged model
+    version = client.create_model_version(
+        name, source=f"{run.info.artifact_uri}/model", run_id=run_id, tags={"run_id": run_id}
+    )
     client.set_registered_model_alias(name, alias, version.version)
     return str(version.version)
 
