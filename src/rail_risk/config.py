@@ -65,7 +65,9 @@ class Settings(BaseSettings):
         env_prefix="RAIL_", env_file=".env", env_ignore_empty=True, extra="ignore"
     )
 
-    rdm_darwin_key: SecretStr | None = None
+    rdm_darwin_user: SecretStr | None = None
+    rdm_darwin_password: SecretStr | None = None
+    rdm_darwin_group: str | None = None
     rdm_hsp_key: SecretStr | None = None
     routes_file: Path = Path("config/routes.yaml")
     data_dir: Path = Path("data")

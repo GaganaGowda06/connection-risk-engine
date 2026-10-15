@@ -60,10 +60,16 @@ def test_shipped_routes_load():
 
 
 def test_secrets_masked_in_repr():
-    s = Settings(_env_file=None, rdm_darwin_key="topsecret", rdm_hsp_key="hspsecret")
+    s = Settings(
+        _env_file=None,
+        rdm_darwin_password="topsecret",  # noqa: S106
+        rdm_darwin_user="someuser",
+        rdm_hsp_key="hspsecret",
+    )
     assert "topsecret" not in repr(s)
     assert "hspsecret" not in str(s)
-    assert s.rdm_darwin_key.get_secret_value() == "topsecret"
+    assert "someuser" not in repr(s)
+    assert s.rdm_darwin_password.get_secret_value() == "topsecret"
 
 
 def test_unknown_log_level_rejected():
@@ -72,5 +78,5 @@ def test_unknown_log_level_rejected():
 
 
 def test_empty_env_value_is_unset(monkeypatch):
-    monkeypatch.setenv("RAIL_RDM_DARWIN_KEY", "")
-    assert Settings(_env_file=None).rdm_darwin_key is None
+    monkeypatch.setenv("RAIL_RDM_DARWIN_PASSWORD", "")
+    assert Settings(_env_file=None).rdm_darwin_password is None
