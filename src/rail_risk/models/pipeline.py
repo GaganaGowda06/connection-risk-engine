@@ -13,13 +13,18 @@ import yaml
 
 from rail_risk.evaluation import (
     Bands,
+    HistoricalBaseline,
+    PersistenceIntervalBaseline,
     Predictions,
     Split,
     SplitConfig,
     coverage_by_band,
     coverage_by_group,
     evaluate,
+    paired_mae_difference,
     score,
+    threshold_reliability,
+    timetable_baseline,
 )
 from rail_risk.lateness import group_labels, lateness_groups
 from rail_risk.models.bands import BandFit, fit_bands
@@ -33,9 +38,12 @@ def load_train_config(path: Path) -> dict[str, Any]:
     return cfg
 
 
-def guard(train_days: int, min_days: int) -> str:
-    """'reportable' only with enough history. Anything less is a smoke test."""
-    return "reportable" if train_days >= min_days else "smoke"
+def guard(train_days: int, min_days: int, dirty: bool = False) -> str:
+    """'reportable' only with enough history and a clean git tree. Anything else is smoke.
+
+    A dirty tree means the logged commit does not describe the code that ran.
+    """
+    return "reportable" if train_days >= min_days and not dirty else "smoke"
 
 
 def validation_halves(
@@ -92,6 +100,7 @@ def score_model(
         cell["coverage_by_group"] = coverage_by_group(
             dates, y, pred, bands, lateness_groups(h), group_labels(), **kw
         )
+        cell["threshold_reliability"] = threshold_reliability(dates, y, pred.probs, bands, **kw)
         out[str(horizon)] = cell
     return out
 
@@ -161,6 +170,7 @@ def run_training(
         result["results"].setdefault("model_global_cqr", {})[name] = score_model(
             fitted, block, bands, eval_cfg, mode="global"
         )
+    result["mae_vs_bar"] = _mae_vs_bar(result, fitted, train, test, bands, eval_cfg)
     result["train_days"] = len(split.train)
     fits = fitted.quantile.fits
     result["model"] = {
@@ -191,6 +201,45 @@ def run_training(
     return result, fitted
 
 
+def _mae_vs_bar(
+    result: dict[str, Any],
+    fitted: Fitted,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    bands: Bands,
+    cfg: SplitConfig,
+) -> dict[str, Any]:
+    """Model MAE minus the bar's MAE per test horizon, paired by service date.
+
+    The bar is the baseline with the lowest validation MAE at that horizon, refitted on train.
+    """
+    historical = HistoricalBaseline(bands).fit(train)
+    persistence = PersistenceIntervalBaseline(bands).fit(train)
+    out: dict[str, Any] = {}
+    for horizon, h in test.groupby("horizon_min"):
+        bar = min(
+            ("timetable", "persistence", "historical"),
+            key=lambda k: result["results"][k]["validation"][str(horizon)]["mae"]["value"],
+        )
+        bar_point = {
+            "timetable": lambda d: timetable_baseline(d, bands),
+            "persistence": persistence.predict,
+            "historical": historical.predict,
+        }[bar](h).point
+        model_point = fitted.quantile.predict(h)[0]
+        diff = paired_mae_difference(
+            h["service_date"].to_numpy(),
+            h["label_delay_min"].to_numpy(dtype=float),
+            model_point,
+            bar_point,
+            resamples=cfg.resamples,
+            seed=cfg.seed,
+            confidence=cfg.confidence,
+        )
+        out[str(horizon)] = {"bar": bar, **diff}
+    return out
+
+
 # tracking
 
 
@@ -202,14 +251,16 @@ def snapshot_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def git_commit() -> str:
+def git_state() -> tuple[str, bool]:
+    """(HEAD sha, working tree dirty). Untracked files count as dirty. Unknown sha is dirty."""
+
     def run(*args: str) -> str:
         return subprocess.run(  # noqa: S603
             ["/usr/bin/git", *args], capture_output=True, text=True, check=False
         ).stdout.strip()
 
-    commit = run("rev-parse", "HEAD") or "unknown"
-    return commit + ("+dirty" if run("status", "--porcelain") else "")
+    sha = run("rev-parse", "HEAD")
+    return sha or "unknown", (not sha) or bool(run("status", "--porcelain"))
 
 
 def flat_metrics(result: dict[str, Any]) -> dict[str, float]:
@@ -235,6 +286,8 @@ def log_to_mlflow(
     snapshot_path: Path,
     train_range: tuple[str, str],
     seed: int,
+    git_sha: str,
+    git_dirty: bool,
 ) -> str:
     import os
 
@@ -268,7 +321,8 @@ def log_to_mlflow(
         mlflow.set_tags(
             {
                 "stage": tag,
-                "git_commit": git_commit(),
+                "git_commit": git_sha,
+                "git_dirty": str(git_dirty).lower(),
                 "snapshot_hash": snapshot_hash(snapshot_path),
                 "train_start": train_range[0],
                 "train_end": train_range[1],
@@ -298,21 +352,6 @@ def _cell(c: dict[str, Any], key: str, digits: int = 2, ci: bool = True) -> str:
     return text
 
 
-FLAG_BELOW = 0.70
-FLAG_MIN_ROWS = 30
-
-
-def flagged_bands(result: dict[str, Any], method: str = "model") -> list[dict[str, Any]]:
-    """Test delay bands whose interval coverage is below 0.70 on at least 30 rows."""
-    flags = []
-    for h, cell in result["results"][method]["test"].items():
-        for band, b in (cell.get("coverage_by_band") or {}).items():
-            if b["value"] is not None and b["n"] >= FLAG_MIN_ROWS and b["value"] < FLAG_BELOW:
-                flags.append({"horizon": int(h), "band": band, "coverage": b["value"],
-                              "n": int(b["n"])})  # fmt: skip
-    return sorted(flags, key=lambda f: (-f["horizon"], f["band"]))
-
-
 def _coverage_table(
     result: dict[str, Any], h: int, key: str, labels: list[str], names: dict[str, str]
 ) -> list[str]:
@@ -325,13 +364,53 @@ def _coverage_table(
             if b.get("value") is None:
                 cells.append("n/a")
                 continue
-            note = f"{b['value']:.2f} (n={int(b['n'])}, width {b['width']:.1f})"
-            cells.append(note)
+            cells.append(f"{b['value']:.2f} (n={int(b['n'])}, width {b['width']:.1f})")
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     return lines
 
 
-def write_model_report(result: dict[str, Any], path: Path, run_id: str) -> None:
+def _reliability_cell(c: dict[str, Any], digits: int = 3) -> str:
+    if c["value"] is None:
+        return "n/a"
+    return f"{c['value']:.{digits}f} ({c['ci_low']:.{digits}f} to {c['ci_high']:.{digits}f})"
+
+
+def _reliability_lines(result: dict[str, Any], h: int) -> list[str]:
+    test = result["results"]
+    lines = [
+        "| Threshold | Share of rows at or above | Method | Brier | ECE |",
+        "|---|---|---|---|---|",
+    ]
+    for t in ("15", "30", "60"):
+        for key, label in (("model", "Model"), ("historical", "Historical")):
+            r = test[key]["test"][str(h)]["threshold_reliability"][t]
+            lines.append(
+                f"| {t} minutes | {r['base_rate']:.3f} | {label} | "
+                f"{_reliability_cell(r['brier'])} | {_reliability_cell(r['ece'])} |"
+            )
+    for t in ("15", "30", "60"):
+        m = test["model"]["test"][str(h)]["threshold_reliability"][t]["table"]
+        b = test["historical"]["test"][str(h)]["threshold_reliability"][t]["table"]
+        lines += [
+            "",
+            f"Reliability for P(at least {t} minutes late) at T-{h}, 10 equal-count bins from "
+            "the lowest predicted probability to the highest:",
+            "",
+            "| Bin | Model n | Model predicted | Model observed | Historical predicted "
+            "| Historical observed |",
+            "|---|---|---|---|---|---|",
+        ]
+        for mb, hb in zip(m, b, strict=True):
+            lines.append(
+                f"| {mb['bin']} | {mb['n']} | {_reliability_cell(mb['predicted'], 2)} | "
+                f"{_reliability_cell(mb['observed'], 2)} | "
+                f"{_reliability_cell(hb['predicted'], 2)} | "
+                f"{_reliability_cell(hb['observed'], 2)} |"
+            )
+    return lines
+
+
+def write_model_report(result: dict[str, Any], path: Path, run_id: str, sha: str = "") -> None:
     from rail_risk.lateness import group_labels
 
     split = result["split"]
@@ -342,12 +421,17 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str) -> None:
     horizons = sorted({int(h) for h in tests}, reverse=True)
     glabels = group_labels()
     target_text = ", ".join(f"T-{h}: {m['target_by_horizon'][str(h)]}" for h in horizons)
+    halved = m["validation_split_in_two"]
     lines = [
         "# Model results",
         "",
-        f"MLflow run {run_id}. The model was trained on {len(split['train'])} complete days "
-        f"({split['train'][0]} to {split['train'][-1]}), tuned and calibrated on validation "
-        f"({split['validation'][0]} to {split['validation'][-1]}), and scored once on test "
+        f"MLflow run {run_id}" + (f", commit {sha}" if sha else "") + ". "
+        f"The model was trained on {len(split['train'])} complete days "
+        f"({split['train'][0]} to {split['train'][-1]}), tuned and calibrated on "
+        f"{len(split['validation'])} validation days "
+        f"({split['validation'][0]} to {split['validation'][-1]})"
+        + (", the earlier half tuning and the later half calibrating" if halved else "")
+        + f", and scored once on {len(split['test'])} test days "
         f"({split['test'][0]} to {split['test'][-1]}). Brackets are 95% bootstrap intervals over "
         "service dates. Intervals are nominal 80% intervals. Delay is minutes late at the route "
         "destination, and cancelled services are not scored.",
@@ -355,17 +439,24 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str) -> None:
         "The interval comes from LightGBM quantile models at 0.1, 0.5 and 0.9 with the horizon as "
         "a feature, widened by a conformal offset computed separately for each horizon and each "
         "observed lateness group at T (not started, 0 to 4, 5 to 14, and 15 or more minutes late). "
-        "The lateness group uses only what is known at T. The target per horizon was chosen by "
-        f"validation pinball loss between the direct delay and the delay minus the lateness at T: "
-        f"{target_text}. Band probabilities use {m['band_calibration']} calibration. The delay "
-        "bands are provisional.",
+        "The lateness group uses only what is known at T, and a group with fewer than 30 "
+        "calibration rows is merged into its neighbour. The target per horizon was chosen by "
+        "tuning pinball loss between the direct delay and the delay minus the lateness at T: "
+        f"{target_text}. Band probabilities come from a LightGBM band model with "
+        f"{m['band_calibration']} calibration. The delay bands are provisional.",
+        "",
+        "Two kinds of check are reported. The conformal guarantee is coverage conditional on the "
+        "state known at T, so coverage by observed lateness is the interval check. For passengers "
+        "and Delay Repay, what matters is whether the probabilities of reaching 15, 30 and 60 "
+        "minutes late are calibrated, so threshold reliability is the passenger facing check. "
+        "Coverage by true delay band is shown for description only.",
         "",
     ]
     for h in horizons:
         lines += [
             f"## T-{h} minutes, test block",
             "",
-            "| Method | MAE | 80% coverage | Mean width | Brier | Log loss |",
+            "| Method | MAE | 80% coverage | Mean width | Brier (5 bands) | Log loss |",
             "|---|---|---|---|---|---|",
         ]
         for key, label in names.items():
@@ -375,45 +466,73 @@ def write_model_report(result: dict[str, Any], path: Path, run_id: str) -> None:
                 f"{_cell(c, 'width', 1, False)} | {_cell(c, 'brier', 3)} | "
                 f"{_cell(c, 'log_loss', 2, False)} |"
             )
+        d = result["mae_vs_bar"][str(h)]
+        verdict = (
+            "The interval excludes zero."
+            if d["ci_low"] > 0 or d["ci_high"] < 0
+            else "The interval includes zero, so the difference is not statistically significant."
+        )
         lines += [
             "",
-            "Coverage by observed lateness at T, which is what the conformal guarantee covers:",
+            f"Against the bar, {d['bar']} (lowest validation MAE), the model's MAE is "
+            f"{d['value']:+.2f} minutes ({d['ci_low']:+.2f} to {d['ci_high']:+.2f}, paired "
+            f"bootstrap over service dates). {verdict}",
+            "",
+            "Interval coverage by observed lateness at T, which is what the conformal guarantee "
+            "covers:",
             "",
             *_coverage_table(result, h, "coverage_by_group", glabels, names),
             "",
-            "Coverage by true delay band, which is what passengers feel:",
+            "Threshold reliability, derived from the band probabilities. Brier is the binary "
+            "Brier score and ECE the expected calibration error over 10 equal-count bins. "
+            "Historical band frequencies are the bar.",
+            "",
+            *_reliability_lines(result, h),
+            "",
+            "Interval coverage by true delay band, descriptive only. A band is selected by the "
+            "outcome that the interval was built before knowing, so it cannot reach the nominal "
+            "level for any forecast that is not perfect.",
             "",
             *_coverage_table(result, h, "coverage_by_band", result["bands"]["labels"], names),
             "",
         ]
-    flags = flagged_bands(result)
-    if flags:
-        lines.append(
-            "Delay bands where the model interval covers under 70% of at least 30 test rows: "
-            + "; ".join(
-                f"T-{f['horizon']} band {f['band']} at {f['coverage']:.2f} (n={f['n']})"
-                for f in flags
-            )
-            + "."
-        )
-    else:
-        lines.append(
-            "No delay band with at least 30 test rows has model interval coverage below 0.70."
-        )
+    n15 = {
+        h: m["calibration_comparison"]["calibration_rows"]["mondrian"][str(h)]["15+"]["n"]
+        for h in horizons
+    }
+    t15 = {h: int(tests[str(h)]["coverage_by_group"]["15+"]["n"]) for h in horizons}
+    sig = [
+        f"T-{h}"
+        for h in horizons
+        if result["mae_vs_bar"][str(h)]["ci_low"] <= 0 <= result["mae_vs_bar"][str(h)]["ci_high"]
+    ]
+    all_days = [*split["train"], *split["validation"], *split["test"]]
     lines += [
-        "",
         "## Limitations",
         "",
         "These results cover one route, BHM to EUS. BHM to MAN and AST to EUS via BHM have not "
-        "been ingested yet, so nothing here says the model transfers to them. The history runs "
-        "from mid July to mid October, so it covers summer and the start of autumn but no winter, "
-        "leaf-fall or storm season, and a seasonal shift would change both the delays and the "
-        "calibration. The test block is seven days, so the bootstrap intervals are wide and the "
-        "late bands hold few rows; a band with fewer than 30 rows is not flagged and should not "
-        "be read as covered. The conformal guarantee holds on average within each observed "
-        "lateness group if the days are exchangeable, which a time split only approximates, and "
-        "it does not hold within the true delay bands. The delay bands are provisional until the "
-        "per-operator compensation rules are checked.",
+        f"been ingested yet, so nothing here says the model transfers to them. The history runs "
+        f"from {min(all_days)} to {max(all_days)}, which is summer and the first weeks of "
+        "autumn, so there is no winter, leaf-fall or storm season, and a seasonal shift would "
+        "change both the delays and the calibration. The 15 or more minutes late lateness group "
+        "is small: it held "
+        + ", ".join(f"{n15[h]} calibration rows at T-{h}" for h in horizons)
+        + " and "
+        + ", ".join(f"{t15[h]} test rows at T-{h}" for h in horizons)
+        + ", so its offsets are noisy and are merged into a neighbour where under 30 rows, and "
+        "its coverage has a wide interval. "
+        + (
+            "The model's MAE gain over the bar is not statistically significant at "
+            + ", ".join(sig)
+            + ". "
+            if sig
+            else "The model's MAE gain over the bar is statistically significant at every horizon. "
+        )
+        + f"The test block is {len(split['test'])} days, so the bootstrap intervals are wide, and "
+        "the 60 minute and longer delays are too rare for the 60 minute threshold table to say "
+        "much. The conformal guarantee holds on average within each observed lateness group if "
+        "the days are exchangeable, which a time split only approximates. The delay bands are "
+        "provisional until the per-operator compensation rules are checked.",
         "",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)

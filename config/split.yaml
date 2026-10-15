@@ -2,7 +2,7 @@
 # test is the most recent complete days, validation the block before it, train everything earlier.
 # gap_days complete days are dropped between consecutive blocks.
 test_days: 7
-validation_days: 7
+validation_days: 14
 gap_days: 1
 # a day is complete for a route when all its hourly windows (06-22) were ingested
 windows_per_day: 16
