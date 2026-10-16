@@ -576,6 +576,21 @@ Brackets are 95% bootstrap intervals over service dates. Lower Brier and ECE are
 | T-60 before outbound | 748 (0) | 6.0% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0528 (0.0382 to 0.0706) | 0.0235 (0.0152 to 0.0448) | 0.0248 (0.0121 to 0.0333) |
 | T-15 before outbound | 300 (448) | 15.0% | 21.3% | 0.1012 (0.0734 to 0.1422) | 0.1304 (0.0956 to 0.1819) | 0.0813 (0.0688 to 0.1326) | 0.0675 (0.0457 to 0.1222) |
 
+### Recalibration of P(miss)
+
+The simulated P(miss) over-predicts, so a map from it to the observed miss frequency was chosen among none, Platt scaling and isotonic regression. It uses validation pairs only, and only forecasts whose inbound had not arrived, because once the inbound has arrived its delay is known. Those pairs were split by date: the methods were fitted on the later half (1160 forecasts) and scored by log loss on the earlier half (1164 forecasts). Tune-half log loss was none 0.2656, platt 0.2676, isotonic 0.2752. No recalibration won, so none is applied and the scores below are unchanged.
+
+| Test, forecast | Pairs | Realised miss rate | Mean predicted before | Mean predicted after | Brier before | Brier after | ECE before | ECE after |
+|---|---|---|---|---|---|---|---|---|
+| T-60 before outbound, all pairs | 748 | 6.0% | 7.9% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0525 (0.0395 to 0.0687) | 0.0235 (0.0152 to 0.0448) | 0.0235 (0.0152 to 0.0448) |
+| T-60 before outbound, inbound not yet arrived | 748 | 6.0% | 7.9% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0525 (0.0395 to 0.0687) | 0.0235 (0.0152 to 0.0448) | 0.0235 (0.0152 to 0.0448) |
+| T-15 before outbound, all pairs | 748 | 6.0% | 8.5% | 8.5% | 0.0406 (0.0287 to 0.0566) | 0.0406 (0.0287 to 0.0566) | 0.0285 (0.0156 to 0.0466) | 0.0285 (0.0156 to 0.0466) |
+| T-15 before outbound, inbound not yet arrived | 300 | 15.0% | 21.3% | 21.3% | 0.1012 (0.0734 to 0.1422) | 0.1012 (0.0734 to 0.1422) | 0.0813 (0.0688 to 0.1326) | 0.0813 (0.0688 to 0.1326) |
+
+The test pairs were scored once with this map, and nothing about it was chosen using them.
+
+The alert threshold before recalibration was 0.22.
+
 ### Check of the whole-minute rounding in the simulator
 
 The simulator rounds each inbound delay draw to a whole minute, because the data is in whole minutes and a tie between being ready and the train leaving counts as a catch. This was first spotted when the first backtest printed validation and test scores together: mean P(miss) was 9.2% against 6.0% realised on test at T-60, and 9.7% against 6.7% on validation. The cause was then diagnosed on pooled validation and test pairs, so test pairs did inform the change, although it has no fitted parameter. The table shows the effect on validation pairs, which the threshold choice also uses, and on test pairs for completeness.

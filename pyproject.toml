@@ -1,5 +1,7 @@
 [project]
 name = "rail-risk"
+license = "MIT"
+license-files = ["LICENSE"]
 version = "0.1.0"
 description = "Calibrated UK rail arrival-range and connection-risk service on open Darwin and HSP data"
 readme = "README.md"

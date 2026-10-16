@@ -689,10 +689,12 @@ def _evaluate_baselines(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         log.error("evaluation_invalid", error=str(exc))
         return 1
-    result = evaluate(snaps, split, bands, cfg)
-    write_reports(result, args.out)
+    for route in routes:  # each route is scored against baselines fitted on its own training days
+        result = evaluate(snaps[snaps["route_id"] == route], split, bands, cfg)
+        write_reports(result, args.out / route)
     log.info(
         "baselines_scored",
+        routes=routes,
         train_days=len(split.train),
         validation_days=len(split.validation),
         test_days=len(split.test),
@@ -742,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
     ev = sub.add_parser("evaluate-baselines", help="score the baselines on validation and test")
     ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
-    ev.add_argument("--out", type=Path, default=Path("reports"))
+    ev.add_argument("--out", type=Path, default=Path("reports/baselines"))
     cn = sub.add_parser("connection", help="miss probability and expected payout for a connection")
     cn.add_argument("--inbound-rid", required=True)
     cn.add_argument(

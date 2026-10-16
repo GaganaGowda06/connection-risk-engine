@@ -18,3 +18,4 @@ infra/*.tfstate.*
 infra/*.tfvars
 infra/*.tfplan
 infra/crash.log
+reports/baselines/*/baselines.json

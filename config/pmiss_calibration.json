@@ -1,1 +1,16 @@
-{"method": "none", "params": {}, "tune_log_loss": {}, "n_tune": 0, "n_calibrate": 0, "provenance": {"note": "placeholder until the backtest writes it"}}
+{
+  "method": "none",
+  "params": {},
+  "tune_log_loss": {
+    "none": 0.2656117459889775,
+    "platt": 0.2675654655705326,
+    "isotonic": 0.27520126308026155
+  },
+  "n_tune": 1164,
+  "n_calibrate": 1160,
+  "provenance": {
+    "fitted_on": "validation pairs whose inbound had not arrived",
+    "git_commit": "4e6d697f646fe6dfc02fe496724aade300191eba",
+    "pairs": 2324
+  }
+}
