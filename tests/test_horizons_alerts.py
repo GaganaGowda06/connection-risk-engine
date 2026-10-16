@@ -275,3 +275,22 @@ def test_a_tie_between_ready_time_and_departure_is_a_catch_not_half_a_miss():
     )
     assert res.p_miss == 0.0
     assert (res.delays == np.round(res.delays)).all()
+
+
+def test_connections_section_reports_the_alerts_and_flags_a_threshold_that_lost_on_test(tmp_path):
+    pv, yv = calibrated(4000, 8)
+    pt, yt = calibrated(4000, 9)
+    cfg = AlertConfig(1.0, 5.0, (3.0, 10.0), 0.01)
+    report = alert_report("may_be_owed_delay_repay", (pv, yv), (pt, yt), cfg)
+    report["test_by_forecast"] = {"T-60 before outbound": report["test"]["chosen"]}
+    result = {
+        "ast_bhm_days": {"train": 1, "validation": 1, "test": 1},
+        "pairs": {"train": 1, "validation": 1, "test": 1},
+        "pairs_with_known_outcome": {"train": 1, "validation": 1, "test": 1},
+        "min_connection_time": 10.0, "min_connection_time_status": "assumed",
+        "window_minutes": 20.0, "baseline": {"overall_miss_rate": 0.1, "pairs_by_gap_bucket": {}},
+        "scores": {}, "alerts": {"may_be_owed_delay_repay": report},
+    }  # fmt: skip
+    text = connections_section(result)
+    assert "Chosen tau2" in text and "Always alert" in text and "Never alert" in text
+    assert "assumptions in config/alerts.yaml" in text and "—" not in text

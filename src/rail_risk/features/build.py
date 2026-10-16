@@ -106,11 +106,13 @@ def leakage_check_real(
     start: date | None = None,
     end: date | None = None,
     routes: tuple[str, ...] | None = None,
+    last_days: int | None = None,
 ) -> tuple[int, int, list[dict], dict[str, int]]:
     """Rebuild `n` random real rows after deleting every actual time after T, and compare.
 
     The sample is split evenly across `routes` (every route present when None), so each route
-    is checked and not just the one with the most rows.
+    is checked and not just the one with the most rows. `last_days` keeps only the newest
+    service dates and `routes` only those routes, which bounds memory in a small test session.
 
     Each sampled (service, route, horizon) becomes its own pseudo service whose stops have all
     actuals after that row's T set to null. The rebuild uses the full history labels, so only
@@ -118,6 +120,11 @@ def leakage_check_real(
     had future actuals deleted, mismatches, rows checked per route).
     """
     stops, rid_routes, route_dest = load_inputs(spark, interim, routes_file, start, end)
+    if last_days is not None:
+        newest = stops.agg(F.max("service_date")).first()[0]
+        stops = stops.filter(F.col("service_date") > F.date_sub(F.lit(newest), last_days))
+    if routes is not None:
+        rid_routes = rid_routes.filter(F.col("route_id").isin(list(routes)))
     full = build_snapshots(spark, stops, rid_routes, route_dest).cache()
     rows = full.select("rid", "route_id", "horizon_min", "t", *FEATURE_COLUMNS).collect()
     rng = random.Random(seed)  # noqa: S311 - sampling, not security
