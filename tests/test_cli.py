@@ -145,3 +145,15 @@ def test_connection_command_rejects_bad_inputs(tmp_path):
             "--ticket", "single"]  # fmt: skip
     assert main([*base, "--outbound-dep", "25:99"]) == 1  # not a clock time
     assert main([*base, "--outbound-dep", "10:00", "--rules-file", str(tmp_path / "x.yaml")]) == 1
+
+
+def test_commands_that_need_data_say_what_to_do_first_when_there_is_none(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    for command in ("build-features", "train", "drift", "backtest-connections"):
+        assert main([command]) == 1
+    out = capsys.readouterr()
+    text = out.out + out.err
+    assert text.count("run the HSP backfill, then rail-risk build-features") == 4

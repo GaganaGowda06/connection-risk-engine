@@ -173,6 +173,14 @@ def _build_features(args: argparse.Namespace) -> int:
     from rail_risk.features.build import build
     from rail_risk.spark import build_spark
 
+    if not (settings.data_dir / "interim" / "hsp_manifest.sqlite").exists():
+        log.error(
+            "build_features_invalid",
+            error=f"no HSP data under {settings.data_dir / 'interim'}",
+            hint=HINT_NO_DATA,
+        )
+        return 1
+
     spark = build_spark()
     stats = build(
         spark,
@@ -188,6 +196,14 @@ def _build_features(args: argparse.Namespace) -> int:
         f"peak_mb={stats.peak_mb:.0f}"
     )
     return 0
+
+
+HINT_NO_DATA = "no data yet: run the HSP backfill, then rail-risk build-features (see the README)"
+
+
+def _hint(exc: Exception) -> dict[str, str]:
+    """A next step for the common first-run failure, a missing data file."""
+    return {"hint": HINT_NO_DATA} if isinstance(exc, FileNotFoundError) else {}
 
 
 def _train(args: argparse.Namespace) -> int:
@@ -224,7 +240,7 @@ def _train(args: argparse.Namespace) -> int:
         )
         split = make_split([d for d in days if d in set(snaps["service_date"])], eval_cfg)
     except (ValueError, OSError) as exc:
-        log.error("train_invalid", error=str(exc))
+        log.error("train_invalid", error=str(exc), **_hint(exc))
         return 1
     sha, dirty = git_state()
     tag = guard(len(split.train), cfg["min_train_days"], dirty)
@@ -433,7 +449,7 @@ def _backtest(args: argparse.Namespace) -> int:
             rules_file=args.rules_file,
         )
     except (ValueError, OSError, KeyError) as exc:
-        log.error("backtest_invalid", error=str(exc))
+        log.error("backtest_invalid", error=str(exc), **_hint(exc))
         return 1
     from rail_risk.alerts import alert_report, load_alert_config, policy_stats
     from rail_risk.connection_report import alert_inputs, write_connections_section
@@ -565,7 +581,7 @@ def _drift(args: argparse.Namespace) -> int:
         split = make_split([d for d in days if d in set(snaps["service_date"])], eval_cfg)
         routes = load_routes(settings.routes_file).routes
     except (ValueError, OSError) as exc:
-        log.error("drift_invalid", error=str(exc))
+        log.error("drift_invalid", error=str(exc), **_hint(exc))
         return 1
     train = snaps[
         snaps["service_date"].isin(set(split.train))
