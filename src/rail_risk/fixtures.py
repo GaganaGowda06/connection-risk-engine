@@ -15,6 +15,7 @@ import pyarrow.parquet as pq
 
 from rail_risk.evaluation import Bands, HistoricalBaseline, SplitConfig, make_split
 from rail_risk.features.snapshots import FEATURE_COLUMNS, STOPS_SCHEMA
+from rail_risk.horizons import HORIZON_GRID
 from rail_risk.models.bundle import ModelBundle, save_bundle
 from rail_risk.models.pipeline import fit_all
 
@@ -55,6 +56,7 @@ def snapshots(days: int = 26, per_day: int = 24, seed: int = 4) -> pd.DataFrame:
                 row = {c: float(rng.normal()) for c in FEATURE_COLUMNS}
                 row.update(
                     {
+                        "minutes_to_arrival": float(h),
                         "rid": f"{d:%Y%m%d}{k:07d}",
                         "route_id": "bhm-eus",
                         "service_date": d,
@@ -78,7 +80,14 @@ def build_bundle() -> tuple[ModelBundle, HistoricalBaseline]:
     block = {d: n for n, days in split.blocks().items() for d in days}
     df = df[df["service_date"].isin(block)].assign(block=lambda x: x["service_date"].map(block))
     fitted = fit_all(df[df["block"] == "train"], df[df["block"] == "validation"], BANDS, CFG)
-    bundle = ModelBundle(fitted.quantile, fitted.bands, BANDS, meta={"git_commit": "fixture"})
+    bundle = ModelBundle(
+        fitted.quantile,
+        fitted.bands,
+        BANDS,
+        horizons=HORIZON_GRID,
+        continuous_horizon=True,
+        meta={"git_commit": "fixture"},
+    )
     return bundle, fitted.baseline
 
 

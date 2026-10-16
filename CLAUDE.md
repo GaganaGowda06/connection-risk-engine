@@ -10,11 +10,11 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Run: `uv run rail-risk check`
 - Java: PySpark 4.2 needs JDK 17. `brew install openjdk@17`; `src/rail_risk/spark.py` sets
   JAVA_HOME to `/opt/homebrew/opt/openjdk@17` when it is unset. CI uses Temurin 17.
-- Build features: `uv run rail-risk build-features [--start D --end D]` (parses Darwin first)
+- Build features: `uv run rail-risk build-features [--start D --end D] [--skip-darwin]` (parses Darwin first; snapshots at 5, 15, 30, 60, 90 and 120 minutes before arrival, with `minutes_to_arrival` as a feature)
 - Baselines: `uv run rail-risk evaluate-baselines` (writes reports/baselines.json and .md)
-- Train: `uv run rail-risk train` (smoke below `min_train_days`, logs to mlruns/mlflow.db, MLflow sqlite backend)
+- Train: `uv run rail-risk train` (smoke below `min_train_days` or on a dirty tree; one model over the routes in config/split.yaml, scored per route; logs to mlruns/mlflow.db, MLflow sqlite backend). Reportable runs write reports/model_results.md, so commit first.
 - Connection: `uv run rail-risk connection --inbound-rid RID [--outbound-dep HH:MM] --date D --fare 50 --ticket single` (no outbound: first feasible)
-- Backtest: `uv run rail-risk backtest-connections` (ast-bhm inbound against bhm-eus outbound, writes reports/connection_backtest.json)
+- Backtest: `uv run rail-risk backtest-connections` (ast-bhm inbound against bhm-eus outbound, out of sample on validation and test dates; writes reports/connection_backtest.json, the connections section of reports/model_results.md, and alert thresholds from config/alerts.yaml; run after `train`)
 - Serve: `uv run rail-risk serve` (localhost:8000; loads model alias `champion`, set with `rail-risk promote --run-id RUN`)
   - `curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610158700587","fare":50,"ticket":"single"}'`
   - `curl -s localhost:8000/health`

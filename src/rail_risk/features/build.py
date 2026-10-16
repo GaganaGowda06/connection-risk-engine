@@ -105,19 +105,30 @@ def leakage_check_real(
     seed: int = 7,
     start: date | None = None,
     end: date | None = None,
-) -> tuple[int, int, list[dict]]:
+    routes: tuple[str, ...] | None = None,
+) -> tuple[int, int, list[dict], dict[str, int]]:
     """Rebuild `n` random real rows after deleting every actual time after T, and compare.
+
+    The sample is split evenly across `routes` (every route present when None), so each route
+    is checked and not just the one with the most rows.
 
     Each sampled (service, route, horizon) becomes its own pseudo service whose stops have all
     actuals after that row's T set to null. The rebuild uses the full history labels, so only
     the live-state and context features can differ. Returns (rows checked, sampled services that
-    had future actuals deleted, mismatches).
+    had future actuals deleted, mismatches, rows checked per route).
     """
     stops, rid_routes, route_dest = load_inputs(spark, interim, routes_file, start, end)
     full = build_snapshots(spark, stops, rid_routes, route_dest).cache()
     rows = full.select("rid", "route_id", "horizon_min", "t", *FEATURE_COLUMNS).collect()
-    random.Random(seed).shuffle(rows)  # noqa: S311 - sampling, not security
-    sample = rows[:n]
+    rng = random.Random(seed)  # noqa: S311 - sampling, not security
+    present = sorted({r["route_id"] for r in rows})
+    chosen = [r for r in present if routes is None or r in routes]
+    sample = []
+    for route in chosen:
+        mine = [r for r in rows if r["route_id"] == route]
+        rng.shuffle(mine)
+        sample += mine[: n // len(chosen)]
+    per_route = {route: sum(1 for r in sample if r["route_id"] == route) for route in chosen}
 
     services, _ = destination_services(spark, stops, rid_routes, route_dest)
     labels = history_labels(services)
@@ -158,7 +169,7 @@ def leakage_check_real(
                     {"rid": r["rid"], "horizon": r["horizon_min"], "feature": col, "a": a, "b": b}
                 )
     full.unpersist()
-    return len(sample), deleted, mismatches
+    return len(sample), deleted, mismatches, per_route
 
 
 __all__ = ["HORIZONS", "BuildStats", "build", "leakage_check_real", "load_inputs"]

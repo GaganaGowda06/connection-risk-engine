@@ -1,0 +1,16 @@
+# Alert policy for the connection engine. The two costs below are ASSUMPTIONS, not measured
+# figures: they say how much worse it is to miss a warning than to send one that was not needed.
+# Revisit them with product input before any alert is shown to a user.
+costs:
+  false_alert: 1.0   # ASSUMPTION: cost of warning a passenger who did not need it
+  missed_alert: 5.0  # ASSUMPTION: cost of not warning a passenger who did
+# missed-alert costs tried to show how far each threshold moves
+sensitivity_missed_alert: [3.0, 10.0]
+# Thresholds are chosen on validation pairs only, over this grid of probabilities, by minimum
+# expected cost per pair. A tie goes to the higher threshold, so fewer alerts.
+grid_step: 0.01
+alerts:
+  likely_to_miss: "P(miss) at or above tau"
+  may_be_owed_delay_repay: "P(final arrival at least 15 minutes late) at or above tau2"
+# tau and tau2 as chosen by `rail-risk backtest-connections` on the validation pairs
+# (filled in from reports/connection_backtest.json after the reportable run)

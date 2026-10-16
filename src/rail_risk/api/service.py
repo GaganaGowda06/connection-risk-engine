@@ -210,9 +210,13 @@ class RiskService:
 
     # scoring
 
-    def _frame(self, row: dict[str, Any], route_id: str, horizon: int) -> pd.DataFrame:
+    def _frame(
+        self, row: dict[str, Any], route_id: str, horizon: int, minutes: float | None = None
+    ) -> pd.DataFrame:
         data = {c: row.get(c) for c in FEATURE_COLUMNS}
         data["route_id"], data["horizon_min"] = route_id, horizon
+        if minutes is not None:  # a continuous model sees the real minutes, not the grid value
+            data["minutes_to_arrival"] = float(minutes)
         frame = pd.DataFrame([data])
         for col in FEATURE_COLUMNS:
             if col != "toc_code":
@@ -329,7 +333,8 @@ class RiskService:
             if snapped:
                 quality["horizon_snapped_from_minutes"] = float(minutes)
                 notes.append(f"the model was given its {horizon} minute horizon, not {minutes}")
-            frame = self._frame(features, route_id, horizon)
+            real = minutes if self.bundle.continuous_horizon else None
+            frame = self._frame(features, route_id, horizon, real)
             point, lo, hi = self.bundle.quantile.predict(frame)
             probs = self.bundle.bands.predict(frame)
             return float(point[0]), float(lo[0]), float(hi[0]), probs, horizon

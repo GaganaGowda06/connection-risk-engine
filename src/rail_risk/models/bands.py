@@ -11,6 +11,7 @@ from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 
 from rail_risk.evaluation import Bands, band_index
+from rail_risk.horizons import DEFAULT_BUCKET_EDGES, horizon_buckets
 from rail_risk.models.quantile import Design
 
 EPS = 1e-15
@@ -273,7 +274,8 @@ class BandFit:
     calibrator: Any
     cv_log_loss: dict[str, float]
     best_iteration: int
-    threshold: dict[int, ThresholdCalibration] | None = None  # by horizon in minutes
+    threshold: dict[int, ThresholdCalibration] | None = None  # by horizon bucket
+    hedges: tuple[float, ...] = DEFAULT_BUCKET_EDGES
 
     def predict_raw(self, df: pd.DataFrame) -> np.ndarray:
         raw = self.booster.predict(self.design.transform(df), num_iteration=self.best_iteration)
@@ -288,9 +290,11 @@ class BandFit:
         if not self.threshold:
             return p
         out = p.copy()
-        for h, idx in df.groupby("horizon_min").indices.items():
-            if int(h) in self.threshold:
-                out[idx] = self.threshold[int(h)].transform(p[idx])
+        buckets = horizon_buckets(df["horizon_min"].to_numpy(dtype=float), self.hedges)
+        for b in np.unique(buckets):
+            if int(b) in self.threshold:
+                idx = np.flatnonzero(buckets == b)
+                out[idx] = self.threshold[int(b)].transform(p[idx])
         return out
 
 
@@ -302,6 +306,9 @@ def fit_bands(
     cfg: dict[str, Any],
     columns: list[str] | None = None,
 ) -> BandFit:
+    hedges = tuple(
+        float(e) for e in cfg.get("mondrian", {}).get("horizon_bucket_edges", DEFAULT_BUCKET_EDGES)
+    )
     design = Design(columns).fit(train)
     y_train = band_index(train["label_delay_min"].to_numpy(dtype=float), bands)
     y_tune = band_index(tune["label_delay_min"].to_numpy(dtype=float), bands)
@@ -330,7 +337,7 @@ def fit_bands(
         callbacks=[lgb.early_stopping(cfg["early_stopping_rounds"], verbose=False)],
     )
     best = max(1, booster.best_iteration)
-    shell = BandFit(design, booster, bands, Identity(), {}, best)
+    shell = BandFit(design, booster, bands, Identity(), {}, best, hedges=hedges)
     p_cal = shell.predict_raw(calibrate)
     y_cal = band_index(calibrate["label_delay_min"].to_numpy(dtype=float), bands)
     dates = calibrate["service_date"].to_numpy()
@@ -341,8 +348,8 @@ def fit_bands(
     p_tune = shell.predict_pre_threshold(tune)
     y_tune_band = band_index(tune["label_delay_min"].to_numpy(dtype=float), bands)
     same = tune is calibrate
-    h_cal = calibrate["horizon_min"].to_numpy()
-    h_tune = tune["horizon_min"].to_numpy()
+    h_cal = horizon_buckets(calibrate["horizon_min"].to_numpy(dtype=float), hedges)
+    h_tune = horizon_buckets(tune["horizon_min"].to_numpy(dtype=float), hedges)
     shell.threshold = {}
     for h in sorted(set(h_cal.tolist())):
         mc, mt = h_cal == h, h_tune == h

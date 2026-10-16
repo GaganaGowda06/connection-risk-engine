@@ -17,7 +17,9 @@ import pyarrow.parquet as pq
 import pyspark.sql.functions as F
 from pyspark.sql import DataFrame, SparkSession, Window
 
-HORIZONS = (120, 60, 15)
+from rail_risk.horizons import HORIZON_GRID
+
+HORIZONS = HORIZON_GRID
 HISTORY_DAYS = 28
 
 
@@ -48,6 +50,7 @@ LIVE_FEATURES = [
     "n_stops_passed",
 ]
 CONTEXT_FEATURES = [
+    "minutes_to_arrival",
     "hour_of_day",
     "dest_hour",
     "day_of_week",
@@ -236,6 +239,7 @@ def build_snapshots(
         .withColumn(
             "lateness_change_last_2", F.col("last_stop_lateness_min") - F.col("_prev_lateness")
         )
+        .withColumn("minutes_to_arrival", F.col("horizon_min").cast("double"))
         .withColumn("hour_of_day", F.hour(local_t))
         .withColumn("dest_hour", F.hour(F.from_utc_timestamp("dest_sched_arr", "Europe/London")))
         .withColumn("day_of_week", ((F.dayofweek("service_date") + 5) % 7) + 1)

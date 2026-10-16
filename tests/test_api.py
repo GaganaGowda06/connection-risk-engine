@@ -85,8 +85,38 @@ def test_happy_path_returns_ranges_probabilities_and_payout(tmp_path, features, 
         dq = body["data_quality"]
         assert dq["stale_live_data"] is False and dq["model_fallback"] is False
         assert dq["live_data_age_minutes"] == 2.0 and dq["schedule_known"] is True
-        assert dq["horizon_snapped_from_minutes"] == 45.0  # the model has fixed horizons
+        # the model takes minutes to arrival as a number, so nothing is snapped
+        assert dq["horizon_snapped_from_minutes"] is None and dq["horizon_used_minutes"] == 45
         assert body["request_id"] == r.headers["x-request-id"]
+
+
+def test_continuous_model_sees_the_real_minutes_and_a_fixed_horizon_model_is_snapped(
+    tmp_path, features, bundle_pair
+):
+    import dataclasses
+
+    bundle, baseline = bundle_pair
+    seen = []
+    real_predict = bundle.quantile.predict
+
+    class Spy:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def predict(self, frame, *a, **k):
+            seen.append(float(frame["minutes_to_arrival"].iloc[0]))
+            return self.inner(frame, *a, **k)
+
+    spy = dataclasses.replace(bundle, quantile=Spy(real_predict))
+    spy.quantile.inner = real_predict
+    with client_for(make_service(tmp_path, features, (spy, baseline))) as c:
+        assert post(c).status_code == 200
+    assert seen == [45.0]  # the real minutes, not a grid value
+
+    fixed = dataclasses.replace(bundle, continuous_horizon=False, horizons=(120, 60, 15))
+    with client_for(make_service(tmp_path, features, (fixed, baseline))) as c:
+        dq = post(c).json()["data_quality"]
+    assert dq["horizon_snapped_from_minutes"] == 45.0 and dq["horizon_used_minutes"] == 60
 
 
 def test_cache_miss_returns_202_warming_then_the_answer_once_built(tmp_path, features, bundle_pair):
