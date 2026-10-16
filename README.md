@@ -137,9 +137,17 @@ The Terraform in `infra/` is plan-only. The commands are in `infra/README.md`.
 
 ## Data licences and sources
 
-- Darwin push port feed and the HSP service metrics and details API, both obtained through the Rail Data Marketplace (RDM) with my own account. Each product's licence is named on its RDM listing. The names are not reproduced here because they are not recorded in this repository and I will not guess them; read them from the listing before reusing the data. The raw data is not in this repository.
+- Darwin Real Time Train Information and the Historical Service Performance (HSP) service metrics and details API, both obtained through the Rail Data Marketplace (RDM). Their licence terms are below.
 - Avanti West Coast Delay Repay page, https://www.avantiwestcoast.co.uk/help-and-support/delay-repay, last updated 2026-07-21 and checked 2026-10-15.
 - West Midlands Railway Delay Repay page, https://www.westmidlandsrailway.co.uk/delay-repay, checked 2026-10-15 (manual reading, see above).
 - England and Wales bank holidays from gov.uk (`config/bank_holidays.json`).
+
+### Data licences
+
+Both rail data products are under the RDM "Open" licence, as read on their RDM product pages on 2026-10-16. It is free and global. Raw data may be made freely available or distributed to third parties, and subscribers may retain the data they receive. The term is 1 year, renewing automatically, with 1 week of notice.
+
+Darwin Real Time Train Information carries one special condition. The data may not be resold "as is" or in substantially unmodified form, and commercial use is permitted only where the data has been materially augmented, integrated with other data sets or otherwise enhanced. This project combines Darwin with HSP history, builds model features from it and adds forecasts, but anyone using it commercially should check that they meet that condition themselves.
+
+This repository commits no raw rail data. The `data/` folder is git-ignored. To run the pipeline you need your own RDM subscription and keys, as described in the setup above.
 
 The code is under the MIT licence (`LICENSE`). Design decisions and corrections are logged in `DECISIONS.md`.
