@@ -86,36 +86,52 @@ Darwin live feed ------+                       v                                
 
 ## How to run it
 
-You need Python 3.12 with `uv`, JDK 17 for Spark (`brew install openjdk@17` on a Mac), and for the live parts a free Rail Data Marketplace account.
+You need Python 3.12 with [uv](https://docs.astral.sh/uv/), and Java 17 for Spark. On a Mac, `brew install openjdk@17` is enough because the code finds it. On Linux, set `JAVA_HOME` to a Java 17 install. Docker (Colima works) is only needed for the container steps. For live data you also need a free Rail Data Marketplace account.
+
+Set up and test. This needs no data and no keys, and takes about 2.5 minutes. One test is skipped because it needs real data, which is expected:
 
 ```
+git clone https://github.com/GaganaGowda06/connection-risk-engine.git
+cd connection-risk-engine
 uv sync
-cp .env.example .env     # fill in the four RAIL_RDM_* values; never commit this file
+cp .env.example .env
 uv run pytest
 uv run rail-risk check
 ```
 
-Data and model, in order:
+`check` prints `darwin_credentials_set=False hsp_key_set=False` until you fill in `.env`. That is expected. The four values to fill in are `RAIL_RDM_HSP_KEY`, `RAIL_RDM_DARWIN_USER`, `RAIL_RDM_DARWIN_PASSWORD` and `RAIL_RDM_DARWIN_GROUP`, from your RDM subscriptions. Never commit `.env`; the commit hooks block it.
+
+Try the API with no keys and no real data. This builds a small synthetic store and serves it. There are no live trains in it, so `/health` reports `degraded` with no live data, which shows the service and the model loading:
 
 ```
-nohup ./scripts/run_capture.sh > /dev/null 2>&1 &            # Darwin capture, keep it running
-nohup ./scripts/run_backfill.sh 2026-04-15 > /dev/null 2>&1 &  # HSP history, many hours
-uv run rail-risk status                                       # progress of both
-uv run rail-risk build-features
-uv run rail-risk train                                        # a reportable run needs a clean git tree
-uv run rail-risk promote --run-id RUN_ID                      # moves the champion alias
-uv run rail-risk backtest-connections                         # connection scores and alert level
+uv run python scripts/make_fixture_store.py /tmp/rail-demo
+RAIL_DATA_DIR=/tmp/rail-demo/data RAIL_MLFLOW_DIR=/tmp/rail-demo/mlruns uv run rail-risk serve
+curl -s localhost:8000/health
+```
+
+The real thing needs data first. Commands that need it say so and stop if it is missing. In order:
+
+```
+nohup ./scripts/run_capture.sh > /dev/null 2>&1 &              # Darwin capture; keep it running
+nohup ./scripts/run_backfill.sh 2026-04-15 > /dev/null 2>&1 &  # HSP history; about 200 s per route-day
+uv run rail-risk status                                         # progress of both
+uv run rail-risk build-features                                 # needs the backfill
+uv run rail-risk train                                          # a reportable run needs a clean git tree
+uv run rail-risk promote --run-id RUN_ID                        # moves the champion alias
+uv run rail-risk backtest-connections                           # connection scores and alert level
 uv run rail-risk drift
 ```
 
-Serving:
+Serving, with the data and a promoted model in place:
 
 ```
 uv run rail-risk serve        # API on localhost:8000
 uv run rail-risk ui           # page on localhost:8501
-docker compose up --build api ui
+docker compose up --build api ui   # the same in containers; mounts data/ and mlruns/ read-only
 curl -s localhost:8000/inbound
 ```
+
+The API reads the Darwin capture as it is written, and its background refresher parses each hour as it closes. In the container the data is read-only, so it reads the raw files directly instead. `rail-risk status` and `/health` flag it when parsing falls more than 2 hours behind.
 
 The Terraform in `infra/` is plan-only. The commands are in `infra/README.md`.
 
