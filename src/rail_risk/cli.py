@@ -446,10 +446,7 @@ def _backtest(args: argparse.Namespace) -> int:
         pred.to_parquet(pred_path)  # data/ is git-ignored; kept for inspecting the scores
         acfg = load_alert_config(args.alerts_file)
         alerts = {}
-        for name, column, outcome in (
-            ("likely_to_miss", "p_miss", "missed"),
-            ("may_be_owed_delay_repay", "p_final_ge15", "delay15"),
-        ):
+        for name, column, outcome in (("likely_to_miss", "p_miss", "missed"),):
             (pv, yv), (pt, yt), per_k = alert_inputs(pred, column, outcome)
             report = alert_report(name, (pv, yv), (pt, yt), acfg)
             report["test_by_forecast"] = {

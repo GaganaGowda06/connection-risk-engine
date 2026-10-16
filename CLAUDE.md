@@ -18,7 +18,8 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Serve: `uv run rail-risk serve` (localhost:8000; loads model alias `champion`, set with `rail-risk promote --run-id RUN`)
   - `curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610158700587","fare":50,"ticket":"single"}'`
   - `curl -s localhost:8000/health`
-- UI: start `rail-risk serve`, then `uv run rail-risk ui` (Streamlit on localhost:8501, calls the API at `RAIL_API_URL`, default http://127.0.0.1:8000)
+  - Connection (Aston to Euston via New Street): `curl -s localhost:8000/inbound` lists inbound services, then `curl -s -X POST localhost:8000/connection -H 'content-type: application/json' -d '{"inbound_rid":"RID","outbound_departure":"10:06","fare":50,"ticket":"single"}'` (omit outbound_departure for the first feasible train). The alert flag uses tau from config/alerts.yaml; 503 means the outbound history did not load.
+- UI: start `rail-risk serve`, then `uv run rail-risk ui` (Streamlit on localhost:8501, calls the API at `RAIL_API_URL`, default http://127.0.0.1:8000). Two tabs: Train arrival and My connection.
 - Bench: `uv run python scripts/bench_api.py` (p50 and p95 against a running API; never part of CI)
 - Tip: run `rail-risk parse-darwin` before `serve`; unparsed closed hours are parsed at startup and add about 8 s
 - Docker: `docker compose up --build api ui` (API on 127.0.0.1:8000, page on 127.0.0.1:8501; data/ and mlruns/ mounted read-only; needs Colima or Docker). The capture service is a profile and must not run beside a host capture.

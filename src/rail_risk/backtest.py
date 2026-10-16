@@ -14,6 +14,7 @@ from rail_risk.connection import (
     Station,
     TailModel,
     Train,
+    fit_route_tails,
     inbound_delay_draws,
     load_stations,
     service_table,
@@ -110,14 +111,7 @@ def load_context(
     # the tails come from training rows only, one per route and one pooled
     scored = model_snaps[model_snaps["label_delay_min"].notna()]
     train = scored[scored["service_date"].isin(train_days)]
-    levels, q = fitted.quantile.distribution(train)
-    outcome = train["label_delay_min"].to_numpy(dtype=float)
-    groups = lateness_groups(train)
-    pooled = TailModel.fit(outcome, q[:, -1], groups)
-    tails = {}
-    for route in sorted(train["route_id"].unique()):
-        m = (train["route_id"] == route).to_numpy()
-        tails[str(route)] = TailModel.fit(outcome[m], q[m, -1], groups[m])
+    tails, pooled = fit_route_tails(fitted.quantile, train)
     return Context(
         fitted, split, bands, cfg, eval_cfg, station, rules, snaps, model_snaps, all_stops,
         eus_rids, ast_rids, history, tails, pooled, interim, manifest,
@@ -344,6 +338,33 @@ def score_block(
     return out
 
 
+def rounding_check(sub: pd.DataFrame, seed: int, resamples: int = 1000) -> dict[str, Any]:
+    """Mean P(miss) before and after rounding the inbound draws, against the realised rate.
+
+    The overall figures and the tightest gap bucket, where ties matter most. The realised rate
+    has a bootstrap CI over service dates.
+    """
+    y = sub["missed"].to_numpy(dtype=float)
+    rate, lo, hi = _date_ci(sub["date"].to_numpy(), y, resamples, seed)
+
+    def block(m: np.ndarray) -> dict[str, Any]:
+        return {
+            "pairs": int(m.sum()),
+            "realised": float(y[m].mean()),
+            "mean_before": float(sub["p_miss_unrounded"].to_numpy()[m].mean()),
+            "mean_after": float(sub["p_miss"].to_numpy()[m].mean()),
+            "brier_before": float(((sub["p_miss_unrounded"].to_numpy()[m] - y[m]) ** 2).mean()),
+            "brier_after": float(((sub["p_miss"].to_numpy()[m] - y[m]) ** 2).mean()),
+        }
+
+    everything = np.ones(len(sub), dtype=bool)
+    tight = (sub["bucket"] == 0).to_numpy()
+    return {
+        "all": {**block(everything), "realised_ci_low": lo, "realised_ci_high": hi},
+        "tightest_gap_bucket": block(tight) if tight.any() else None,
+    }
+
+
 def run_backtest(
     ctx: Context,
     spark: Any,
@@ -447,6 +468,10 @@ def run_backtest(
             levels, q, p.inbound_sched_arr, train_of(planned_row), alts, mct, outbound,
             ctx.bands.lower_edges, draws, ctx.cfg["seed"], tail, floor,
         )  # fmt: skip
+        before = simulate(
+            levels, q, p.inbound_sched_arr, train_of(planned_row), alts, mct, outbound,
+            ctx.bands.lower_edges, draws, ctx.cfg["seed"], tail, floor, round_inbound=False,
+        )  # fmt: skip
         lo, hi = res.arrival_range(0.1, 0.9) or (np.nan, np.nan)
         final_delay = (
             np.nan if np.isnan(p.realised_arrival) else float(p.realised_arrival - p.planned_arr)
@@ -455,8 +480,8 @@ def run_backtest(
             "block": p.block, "date": p.date, "k": k, "pair": p.Index, "state": state,
             "minutes_to_arrival": minutes, "inbound_rid": p.inbound_rid,
             "outbound_rid": p.outbound_rid, "gap": p.gap, "bucket": p.bucket,
-            "p_miss": res.p_miss, "p_stranded": res.p_stranded,
-            "p_final_ge15": float(res.band_probs[ctx.bands.lower_edges.index(TOP_EDGE) :].sum()),
+            "p_miss": res.p_miss, "p_miss_unrounded": before.p_miss,
+            "p_stranded": res.p_stranded,
             "lo": lo, "hi": hi, "missed": p.missed, "stranded": p.stranded,
             "realised_arrival": p.realised_arrival, "final_delay": final_delay,
             "baseline": float(baseline.predict([p.gap])[0]),
@@ -481,5 +506,17 @@ def run_backtest(
                 }
                 for st, g in sub.groupby("state")
             }
+            # the subset whose inbound had not arrived when the forecast was made: a fact known
+            # at prediction time, not chosen by the outcome
+            waiting = sub[sub["state"] != "arrived"]
+            cell["not_yet_arrived"] = (
+                {
+                    **score_block(waiting, seed=ctx.cfg["seed"]),
+                    "excluded_arrived": int(len(sub) - len(waiting)),
+                }
+                if len(waiting) >= 20
+                else None
+            )
+            cell["rounding_check"] = rounding_check(sub, ctx.cfg["seed"])
             scores.setdefault(block, {})[f"T-{k} before outbound"] = cell
     return {**summary, "scores": scores}, pred

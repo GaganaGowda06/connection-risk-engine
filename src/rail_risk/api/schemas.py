@@ -98,3 +98,80 @@ class RouteItem(BaseModel):
     origin: str
     destination: str
     model_trained_on_route: bool
+
+
+HHMM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class ConnectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inbound_rid: str = Field(pattern=RID_PATTERN, description="The Aston to New Street service")
+    outbound_departure: str | None = Field(
+        default=None,
+        pattern=HHMM_PATTERN,
+        description="Scheduled New Street departure, HH:MM. Omitted: the first feasible train",
+    )
+    fare: float | None = Field(default=None, ge=0, le=1000)
+    ticket: Literal["single", "return"] = "single"
+
+
+class InboundOut(BaseModel):
+    rid: str
+    scheduled_arrival: str | None = Field(description="Scheduled arrival at the hub, HH:MM")
+    state: Literal["arrived", "approaching", "due_or_late", "cancelled"]
+    minutes_to_arrival: int | None
+    expected_delay_minutes: float | None = Field(
+        description="Known delay when it has arrived, otherwise the model's median"
+    )
+
+
+class OutboundOut(BaseModel):
+    rid: str
+    toc: str | None
+    scheduled_departure: str
+    scheduled_arrival: str = Field(description="Scheduled arrival at the final stop, HH:MM")
+    scheduled_gap_minutes: float
+    chosen_automatically: bool
+    alternatives: list[str] = Field(description="Later departures that would carry a missed pass")
+
+
+class ConnectionTimeOut(BaseModel):
+    station: str
+    minutes: int
+    status: str
+    comment: str | None = None
+
+
+class SensitivityRow(BaseModel):
+    minutes: int
+    feasible: bool
+    p_miss: float | None
+    arrival_range_80: str | None
+    expected_payout_gbp: float | None
+
+
+class ConnectionDelayRepay(DelayRepayOut):
+    stranded_assumption: str
+
+
+class ConnectionResponse(BaseModel):
+    request_id: str
+    status: Literal["ok", "refused", "cancelled"]
+    inbound: InboundOut | None
+    outbound: OutboundOut | None
+    refusal: str | None = None
+    first_feasible_departure: str | None = None
+    p_miss: float | None
+    alert: bool | None = Field(description="True when P(miss) is at least the alert threshold")
+    alert_threshold: float | None
+    p_stranded: float | None
+    arrival_range_80: str | None = Field(description='Final arrival, for example "11:42 to 11:55"')
+    median_arrival: str | None
+    delay_repay: ConnectionDelayRepay | None
+    connection_time: ConnectionTimeOut | None
+    sensitivity: list[SensitivityRow]
+    assumptions: list[str]
+    model_run_id: str | None
+    model_version: str | None
+    data_quality: DataQuality

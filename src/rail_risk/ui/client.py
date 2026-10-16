@@ -68,3 +68,38 @@ def risk_with_retry(rid: str, fare: float | None, ticket: str) -> tuple[int, dic
         sleep(min(max(retry_after, 1), 10))
         status, data, _ = post_risk(rid, fare, ticket)
     return status, data
+
+
+def get_inbound() -> list[dict[str, Any]]:
+    r = _request("GET", "/inbound")
+    if r.status_code != 200:
+        raise ApiDown(f"/inbound answered {r.status_code}")
+    return r.json()
+
+
+def post_connection(
+    inbound_rid: str, outbound_departure: str | None, fare: float | None, ticket: str
+) -> tuple[int, dict[str, Any], int]:
+    """(status code, body, Retry-After seconds). The body is {} when it is not JSON."""
+    body: dict[str, Any] = {"inbound_rid": inbound_rid, "ticket": ticket}
+    if outbound_departure:
+        body["outbound_departure"] = outbound_departure
+    if fare is not None:
+        body["fare"] = fare
+    r = _request("POST", "/connection", json=body)
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
+    return r.status_code, data, int(r.headers.get("retry-after", "2"))
+
+
+def connection_with_retry(
+    inbound_rid: str, outbound_departure: str | None, fare: float | None, ticket: str
+) -> tuple[int, dict[str, Any]]:
+    """Ask for the connection; if the service is warming, wait as told and ask once more."""
+    status, data, retry_after = post_connection(inbound_rid, outbound_departure, fare, ticket)
+    if status == 202:
+        sleep(min(max(retry_after, 1), 10))
+        status, data, _ = post_connection(inbound_rid, outbound_departure, fare, ticket)
+    return status, data

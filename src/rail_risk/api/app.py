@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from rail_risk.api.schemas import (
+    ConnectionRequest,
+    ConnectionResponse,
     Health,
     RiskRequest,
     RiskResponse,
@@ -23,7 +25,7 @@ from rail_risk.api.schemas import (
     ServiceItem,
     Warming,
 )
-from rail_risk.api.service import NotFound, RiskService
+from rail_risk.api.service import ConnectionUnavailable, NotFound, RiskService
 from rail_risk.api.service import Warming as WarmingError
 from rail_risk.logging import get_logger
 
@@ -132,6 +134,54 @@ def create_app(
         service: RiskService = state["service"]
         return [ServiceItem(**s) for s in service.services(route)]
 
+    @app.get("/inbound", response_model=list[ServiceItem])
+    async def inbound() -> list[ServiceItem]:
+        """Aston to New Street services due at New Street in the next two hours."""
+        service: RiskService = state["service"]
+        return [ServiceItem(**s) for s in service.inbound_services(120)]
+
+    @app.post(
+        "/connection",
+        response_model=ConnectionResponse,
+        responses={202: {"model": Warming}},
+    )
+    async def connection(
+        body: ConnectionRequest, request: Request
+    ) -> ConnectionResponse | JSONResponse:
+        service: RiskService = state["service"]
+        loop = asyncio.get_running_loop()
+        call = lambda: service.connection(  # noqa: E731
+            body.inbound_rid,
+            body.outbound_departure,
+            body.fare,
+            body.ticket,
+            request.state.request_id,
+        )
+        try:
+            return await asyncio.wait_for(loop.run_in_executor(None, call), timeout=budget_seconds)
+        except WarmingError as exc:
+            if state["wake"] is not None:
+                state["wake"].set()
+            warm = Warming(
+                request_id=request.state.request_id, rid=exc.rid,
+                retry_after_seconds=exc.retry_after,
+                detail="features for the inbound service are being built; retry shortly",
+            )  # fmt: skip
+            return JSONResponse(
+                status_code=202,
+                content=warm.model_dump(),
+                headers={"Retry-After": str(exc.retry_after)},
+            )
+        except NotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ConnectionUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
+        except TimeoutError:
+            log.error("request_timeout", request_id=request.state.request_id, rid=body.inbound_rid)
+            raise HTTPException(
+                status_code=504, detail=f"no answer within {budget_seconds:.0f} seconds"
+            ) from None
+
     @app.post("/risk", response_model=RiskResponse, responses={202: {"model": Warming}})
     async def risk(body: RiskRequest, request: Request) -> RiskResponse | JSONResponse:
         service: RiskService = state["service"]
@@ -226,6 +276,10 @@ def default_service() -> RiskService:
     )  # fmt: skip
     if bundle is None:
         service.baseline = baseline or _fit_baseline(settings, bands)
+    from rail_risk.api.connection_inputs import load_connection_inputs
+
+    for name, value in load_connection_inputs(settings, bundle).items():
+        setattr(service, name, value)
     service.refresh_features()
     return service
 

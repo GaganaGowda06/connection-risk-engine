@@ -10,7 +10,29 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from rail_risk.api.schemas import DataQuality, DelayRepayOut, RiskResponse
+from rail_risk.api.schemas import (
+    ConnectionDelayRepay,
+    ConnectionResponse,
+    ConnectionTimeOut,
+    DataQuality,
+    DelayRepayOut,
+    InboundOut,
+    OutboundOut,
+    RiskResponse,
+    SensitivityRow,
+)
+from rail_risk.connection import (
+    DEFAULT_SEED,
+    InfeasibleConnection,
+    OutboundDelays,
+    Station,
+    TailModel,
+    Train,
+    choose_outbound,
+    first_feasible,
+    minutes_to_hhmm,
+    simulate,
+)
 from rail_risk.evaluation import Bands, threshold_probability
 from rail_risk.features.snapshots import FEATURE_COLUMNS
 from rail_risk.live import FeatureService, LiveStore, resolve_route
@@ -22,10 +44,29 @@ STALE_MINUTES = 10.0
 FEATURE_TTL_SECONDS = 60.0
 WINDOW_BEFORE_MIN = 20  # keep tracking a service this long after its scheduled arrival
 WINDOW_AFTER_MIN = 180
+HUB, FINAL = "BHM", "EUS"
+INBOUND_ROUTE, OUTBOUND_ROUTE = "ast-bhm", "bhm-eus"
+SENSITIVITY_MINUTES = (5, 7, 10, 15)
+CONNECTION_DRAWS = 2000
+OUTBOUND_TTL_SECONDS = 20.0
+STRANDED_ASSUMPTION = (
+    "A draw with no catchable train that day is priced in the top delay tier, which assumes a "
+    "stranded passenger claims the longest delay."
+)
+ASSUMPTIONS = (
+    "The inbound and outbound delays are modelled as independent, so shared causes such as a "
+    "signalling failure are not captured.",
+    "The minimum connection time is an assumed figure, not a published one.",
+    "Outbound delays come from past trains at the same hour, not from today's running.",
+)
 
 
 class NotFound(LookupError):
     """The rid is unknown or does not call at a configured route."""
+
+
+class ConnectionUnavailable(RuntimeError):
+    """The connection model's inputs (outbound history or station times) are not loaded."""
 
 
 class Warming(Exception):
@@ -68,6 +109,13 @@ class RiskService:
     _services: list[dict[str, Any]] = field(default_factory=list)
     _failed: dict[str, float] = field(default_factory=dict)  # rid -> when a build gave nothing
     _memo: dict[Any, Any] | None = None  # prepared tables during one refresh
+    # connection inputs, set at startup; None means /connection answers 503
+    outbound_history: OutboundDelays | None = None
+    stations: dict[str, Station] = field(default_factory=dict)
+    tails: dict[str, TailModel] = field(default_factory=dict)
+    pooled_tail: TailModel | None = None
+    alert_tau: float | None = None
+    _outbound_cache: dict[Any, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
 
     # live state
 
@@ -394,3 +442,296 @@ class RiskService:
             toc=toc, toc_status="verified", amount_gbp=round(result.expected_payout, 2),
             reason=None, caveat=op.caveat,
         )  # fmt: skip
+
+    # connections
+
+    def inbound_services(self, minutes: int = 120) -> list[dict[str, Any]]:
+        """Aston to New Street services due at the hub within `minutes`, soonest first."""
+        return [
+            s
+            for s in self._services
+            if s["route_id"] == INBOUND_ROUTE and s["minutes_to_arrival"] <= minutes
+        ]
+
+    @staticmethod
+    def _day_minutes(ts: pd.Timestamp, midnight: pd.Timestamp) -> float:
+        return (pd.Timestamp(ts).tz_convert(LONDON) - midnight).total_seconds() / 60.0
+
+    def _outbound_rows(self, midnight: pd.Timestamp, around: pd.Timestamp, stale: bool, skip: str):
+        """BHM to EUS services leaving the hub from 30 minutes before `around` to 6 hours after,
+        as dicts with a Train, and whether each is cancelled or has already left. Scanning the
+        events is the slow part, so the answer is kept for 20 seconds."""
+        key = (midnight, around, stale, skip)
+        hit = self._outbound_cache.get(key)
+        if hit is not None and time.monotonic() - hit[0] < OUTBOUND_TTL_SECONDS:
+            return hit[1]
+        rows = self._outbound_rows_uncached(midnight, around, stale, skip)
+        self._outbound_cache = {
+            k: v for k, v in self._outbound_cache.items() if time.monotonic() - v[0] < 60
+        }
+        self._outbound_cache[key] = (time.monotonic(), rows)
+        return rows
+
+    def _outbound_rows_uncached(
+        self, midnight: pd.Timestamp, around: pd.Timestamp, stale: bool, skip: str
+    ):
+        ev = self.store.events
+        hub = {t for t, crs in self.store.tiplocs.items() if crs == HUB}
+        dep = ev[(ev["event_type"] == "dep") & ev["tiploc"].isin(hub)]
+        lo, hi = around - pd.Timedelta(minutes=30), around + pd.Timedelta(hours=6)
+        dep = dep[(dep["planned_time"] >= lo) & (dep["planned_time"] <= hi)]
+        # only services that also call at the final stop; most New Street departures do not
+        final = {t for t, crs in self.store.tiplocs.items() if crs == FINAL}
+        calls_at_final = set(ev[(ev["event_type"] == "arr") & ev["tiploc"].isin(final)]["rid"])
+        rows = []
+        for rid in sorted((set(dep["rid"]) & calls_at_final) - {skip}):
+            table = self.store.stop_table(rid)
+            if table.empty or resolve_route(table, self.routes, prefer=OUTBOUND_ROUTE) is None:
+                continue
+            at_hub = table[table["location"] == HUB].iloc[-1]
+            at_end = table[table["location"] == FINAL].iloc[-1]
+            if pd.isna(at_hub["sched_dep"]) or pd.isna(at_end["sched_arr"]):
+                continue
+            toc = table["toc_code"].dropna()
+            cancelled, _ = self.store.cancellation(rid)
+            rows.append(
+                {
+                    "rid": rid,
+                    "train": Train(
+                        self._day_minutes(at_hub["sched_dep"], midnight),
+                        self._day_minutes(at_end["sched_arr"], midnight),
+                        None if toc.empty else str(toc.iloc[0]),
+                    ),
+                    "cancelled": cancelled,
+                    "left": bool(pd.notna(at_hub["actual_dep"])) and not stale,
+                }
+            )
+        return sorted(rows, key=lambda r: r["train"].sched_dep)
+
+    def _inbound_distribution(self, rid, table, route_id, sched, stale, dest, quality, notes):
+        """(levels, quantiles, tail, floor, state, minutes, expected delay) for the inbound."""
+        bundle = self.bundle
+        levels_default = (
+            np.asarray(bundle.quantile.chosen.quantiles) if bundle else np.array([0.1, 0.5, 0.9])
+        )
+        tail_model = self.tails.get(route_id, self.pooled_tail)
+        if pd.notna(dest["actual_arr"]) and not stale:
+            delay = (dest["actual_arr"] - sched).total_seconds() / 60.0
+            return (
+                levels_default,
+                np.full(len(levels_default), delay),
+                None,
+                None,
+                "arrived",
+                None,
+                delay,
+            )
+        minutes = self._minutes(sched)
+        features, features_age = self._features_for(rid, table, route_id, max(1, minutes), stale)
+        quality["features_age_seconds"] = None if features_age is None else round(features_age, 1)
+        if not features:
+            raise NotFound("features could not be built for that service")
+        if bundle is not None:
+            horizon, snapped = bundle.model_horizon(max(1, minutes))
+            quality["horizon_used_minutes"] = int(horizon)
+            if snapped:
+                quality["horizon_snapped_from_minutes"] = float(max(1, minutes))
+            real = max(1, minutes) if bundle.continuous_horizon else None
+            frame = self._frame(features, route_id, horizon, real)
+            levels, q = bundle.quantile.distribution(frame)
+            q = q[0]
+            tail = None if tail_model is None else tail_model.for_group(int(_group(frame)))
+        else:
+            point, lo, hi, _, _ = self._predict(features, route_id, max(1, minutes), quality, notes)
+            levels, q, tail = np.array([0.1, 0.5, 0.9]), np.array([lo, point, hi]), None
+        state = "approaching" if minutes >= 5 else "due_or_late"
+        floor = float(-minutes) if minutes < 0 else None
+        median = float(np.interp(0.5, levels, np.maximum.accumulate(q)))
+        return levels, q, tail, floor, state, minutes, median
+
+    def connection(
+        self,
+        inbound_rid: str,
+        outbound_departure: str | None,
+        fare: float | None,
+        ticket: str,
+        request_id: str,
+    ) -> ConnectionResponse:
+        if self.outbound_history is None or HUB not in self.stations:
+            raise ConnectionUnavailable("the connection model inputs are not loaded")
+        if not self.store.has(inbound_rid):
+            raise NotFound("unknown service id")
+        station = self.stations[HUB]
+        age, stale = self.age_minutes(), self.is_stale()
+        notes: list[str] = []
+        if stale:
+            notes.append(
+                f"Darwin data is older than {STALE_MINUTES:.0f} minutes, so the inbound is "
+                "treated as not started and nothing is known about the outbound's running"
+            )
+        try:
+            table, route_id, dest = self._prepare(inbound_rid, INBOUND_ROUTE, strip_live=stale)
+        except NotFound:
+            raise NotFound("that service is not an Aston to New Street service") from None
+        quality = dict(
+            live_data_age_minutes=None if age is None else round(age, 1),
+            stale_live_data=stale,
+            model_fallback=self.bundle is None,
+            horizon_snapped_from_minutes=None,
+            horizon_used_minutes=None,
+            route_in_training=route_id in self.route_model_trained_on,
+            schedule_known=inbound_rid in self.store.schedules,
+            features_age_seconds=None,
+        )
+        if self.bundle is None:
+            notes.append("model unavailable: the historical baseline sets the inbound delay")
+        elif not self.tails and self.pooled_tail is None:
+            notes.append("no tail model loaded, so the far right tail of the delay is understated")
+        base = dict(
+            request_id=request_id, model_run_id=None if self.bundle is None else self.model_run_id,
+            model_version=None if self.bundle is None else self.model_version,
+            connection_time=ConnectionTimeOut(
+                station=HUB, minutes=station.minutes, status=station.status,
+                comment=station.comment,
+            ),
+            assumptions=list(ASSUMPTIONS), alert_threshold=self.alert_tau,
+        )  # fmt: skip
+        empty = dict(
+            p_miss=None, alert=None, p_stranded=None, arrival_range_80=None, median_arrival=None,
+            delay_repay=None, sensitivity=[],
+        )  # fmt: skip
+        sched = dest["sched_arr"]
+        if pd.isna(sched):
+            raise NotFound("service has no scheduled arrival at the hub")
+        cancelled, reason = self.store.cancellation(inbound_rid)
+        if cancelled:
+            return ConnectionResponse(
+                **base, **empty, status="cancelled", outbound=None,
+                refusal="the inbound service is cancelled"
+                + (f" (reason {reason})" if reason else ""),
+                inbound=InboundOut(
+                    rid=inbound_rid, scheduled_arrival=clock(sched), state="cancelled",
+                    minutes_to_arrival=None, expected_delay_minutes=None,
+                ),
+                data_quality=DataQuality(**quality, notes=[*notes, "inbound is cancelled"]),
+            )  # fmt: skip
+
+        midnight = sched.tz_convert(LONDON).normalize()
+        inbound_sched = self._day_minutes(sched, midnight)
+        rows = self._outbound_rows(midnight, sched, stale, inbound_rid)
+        usable = [r for r in rows if not r["cancelled"] and not r["left"]]
+        trains = [r["train"] for r in usable]
+        by_dep = {round(r["train"].sched_dep, 1): r for r in rows}
+
+        levels, q, tail, floor, state, minutes, expected = self._inbound_distribution(
+            inbound_rid, table, route_id, sched, stale, dest, quality, notes
+        )
+        inbound = InboundOut(
+            rid=inbound_rid, scheduled_arrival=clock(sched), state=state,
+            minutes_to_arrival=minutes, expected_delay_minutes=round(float(expected), 1),
+        )  # fmt: skip
+        if state == "due_or_late":
+            notes.append(
+                "the inbound is due or past due; the forecast is conditioned on it not having "
+                "arrived yet"
+                if floor
+                else "the inbound is due within the model's shortest horizon"
+            )
+
+        planned_min = None
+        if outbound_departure is not None:
+            hh, mm = outbound_departure.split(":")
+            planned_min = int(hh) * 60.0 + int(mm)
+        refusal, first = None, None
+        try:
+            if planned_min is not None:
+                hit = [r for r in rows if abs(r["train"].sched_dep - planned_min) < 0.5]
+                if hit and hit[0]["cancelled"]:
+                    raise InfeasibleConnection(
+                        f"the {outbound_departure} is cancelled",
+                        first_feasible(inbound_sched, trains, station.minutes),
+                    )
+                if hit and hit[0]["left"]:
+                    raise InfeasibleConnection(
+                        f"the {outbound_departure} has already left New Street",
+                        first_feasible(inbound_sched, trains, station.minutes),
+                    )
+            planned = choose_outbound(inbound_sched, trains, station.minutes, planned_min)
+        except InfeasibleConnection as exc:
+            refusal, first = str(exc), exc.first_feasible
+        if refusal is not None:
+            return ConnectionResponse(
+                **base, **empty, status="refused", inbound=inbound, outbound=None, refusal=refusal,
+                first_feasible_departure=(
+                    None if first is None else minutes_to_hhmm(first.sched_dep)
+                ),
+                data_quality=DataQuality(**quality, notes=notes),
+            )  # fmt: skip
+
+        row = by_dep[round(planned.sched_dep, 1)]
+        later = [t for t in trains if t.sched_dep > planned.sched_dep][:3]
+        now_min = self._day_minutes(pd.Timestamp(self.now()), midnight)
+        if planned.sched_dep < now_min:
+            notes.append(
+                "the outbound is past its scheduled departure; its remaining delay is not "
+                "conditioned on that"
+            )
+
+        def run(mct: float):
+            return simulate(
+                levels, q, inbound_sched, planned, later, mct, self.outbound_history,
+                self.bands.lower_edges, CONNECTION_DRAWS, DEFAULT_SEED, tail, floor,
+            )  # fmt: skip
+
+        def arrival(result) -> str | None:
+            rng = result.arrival_range(0.1, 0.9)
+            return (
+                None if rng is None else f"{minutes_to_hhmm(rng[0])} to {minutes_to_hhmm(rng[1])}"
+            )
+
+        result = run(float(station.minutes))
+        p_miss = round(float(result.p_miss), 4)
+        repay = self._repay(planned.toc, fare, ticket, result.band_probs)
+        gap = planned.sched_dep - inbound_sched
+        sens = []
+        for m in SENSITIVITY_MINUTES:
+            if gap < m:
+                sens.append(SensitivityRow(
+                    minutes=m, feasible=False, p_miss=None, arrival_range_80=None,
+                    expected_payout_gbp=None,
+                ))  # fmt: skip
+                continue
+            r = run(float(m))
+            sens.append(SensitivityRow(
+                minutes=m, feasible=True, p_miss=round(float(r.p_miss), 4),
+                arrival_range_80=arrival(r),
+                expected_payout_gbp=self._repay(planned.toc, fare, ticket, r.band_probs).amount_gbp,
+            ))  # fmt: skip
+        median = (
+            None if result.stranded
+            else minutes_to_hhmm(planned.sched_arr + result.delay_quantiles[0.5])
+        )  # fmt: skip
+        return ConnectionResponse(
+            **base, status="ok", inbound=inbound,
+            outbound=OutboundOut(
+                rid=row["rid"], toc=planned.toc,
+                scheduled_departure=minutes_to_hhmm(planned.sched_dep),
+                scheduled_arrival=minutes_to_hhmm(planned.sched_arr),
+                scheduled_gap_minutes=round(gap, 1), chosen_automatically=planned_min is None,
+                alternatives=[minutes_to_hhmm(t.sched_dep) for t in later],
+            ),
+            p_miss=p_miss,
+            alert=None if self.alert_tau is None else bool(p_miss >= self.alert_tau),
+            p_stranded=round(float(result.p_stranded), 4),
+            arrival_range_80=arrival(result), median_arrival=median,
+            delay_repay=ConnectionDelayRepay(
+                **repay.model_dump(), stranded_assumption=STRANDED_ASSUMPTION
+            ),
+            sensitivity=sens, data_quality=DataQuality(**quality, notes=notes),
+        )  # fmt: skip
+
+
+def _group(frame: pd.DataFrame) -> int:
+    from rail_risk.lateness import lateness_groups
+
+    return int(lateness_groups(frame)[0])

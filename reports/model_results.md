@@ -569,7 +569,29 @@ Each forecast is made 60 or 15 minutes before the outbound is due to leave, with
 | T-60 before outbound | 748 | 6.0% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0528 (0.0382 to 0.0706) | 0.0235 (0.0152 to 0.0448) | 0.0248 (0.0121 to 0.0333) | 0.874 (0.823 to 0.920) of 737 |
 | T-15 before outbound | 748 | 6.0% | 8.5% | 0.0406 (0.0287 to 0.0566) | 0.0528 (0.0382 to 0.0706) | 0.0285 (0.0156 to 0.0466) | 0.0248 (0.0121 to 0.0333) | 0.877 (0.825 to 0.923) of 737 |
 
-Brackets are 95% bootstrap intervals over service dates. Lower Brier and ECE are better. The coverage column is the share of pairs whose realised arrival at Euston fell inside the predicted 80% range, counting only pairs that reached Euston.
+Brackets are 95% bootstrap intervals over service dates. Lower Brier and ECE are better. The coverage column is the share of pairs whose realised arrival at Euston fell inside the predicted 80% range, counting only pairs that reached Euston. The table above is all pairs. At T-60 no inbound had arrived yet, but at T-15 many had, and for those the inbound delay is simply known, so the all-pairs T-15 gain overstates what the model adds. The next table keeps only pairs whose inbound had not arrived when the forecast was made, which is known at prediction time and not chosen by the outcome.
+
+| Forecast time | Pairs (arrived pairs left out) | Realised miss rate | Mean predicted | Model Brier | Baseline Brier | Model ECE | Baseline ECE |
+|---|---|---|---|---|---|---|---|
+| T-60 before outbound | 748 (0) | 6.0% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0528 (0.0382 to 0.0706) | 0.0235 (0.0152 to 0.0448) | 0.0248 (0.0121 to 0.0333) |
+| T-15 before outbound | 300 (448) | 15.0% | 21.3% | 0.1012 (0.0734 to 0.1422) | 0.1304 (0.0956 to 0.1819) | 0.0813 (0.0688 to 0.1326) | 0.0675 (0.0457 to 0.1222) |
+
+### Check of the whole-minute rounding in the simulator
+
+The simulator rounds each inbound delay draw to a whole minute, because the data is in whole minutes and a tie between being ready and the train leaving counts as a catch. This was first spotted when the first backtest printed validation and test scores together: mean P(miss) was 9.2% against 6.0% realised on test at T-60, and 9.7% against 6.7% on validation. The cause was then diagnosed on pooled validation and test pairs, so test pairs did inform the change, although it has no fitted parameter. The table shows the effect on validation pairs, which the threshold choice also uses, and on test pairs for completeness.
+
+| Block and forecast time | Pairs | Realised miss rate | Mean P(miss) before | Mean P(miss) after | Brier before | Brier after |
+|---|---|---|---|---|---|---|
+| validation, T-60 before outbound, all pairs | 1670 | 6.7% | 9.7% | 8.3% | 0.0561 | 0.0547 |
+| validation, T-60 before outbound, tightest gap, 10 to 14 min | 460 | 19.3% | 26.6% | 22.7% | 0.1549 | 0.1507 |
+| validation, T-15 before outbound, all pairs | 1670 | 6.7% | 9.5% | 8.2% | 0.0451 | 0.0436 |
+| validation, T-15 before outbound, tightest gap, 10 to 14 min | 460 | 19.3% | 26.4% | 22.7% | 0.1282 | 0.1241 |
+| test, T-60 before outbound, all pairs | 748 | 6.0% | 9.2% | 7.9% | 0.0546 | 0.0525 |
+| test, T-60 before outbound, tightest gap, 10 to 14 min | 188 | 16.0% | 27.5% | 23.5% | 0.1426 | 0.1347 |
+| test, T-15 before outbound, all pairs | 748 | 6.0% | 10.0% | 8.5% | 0.0431 | 0.0406 |
+| test, T-15 before outbound, tightest gap, 10 to 14 min | 188 | 16.0% | 27.6% | 23.6% | 0.1175 | 0.1085 |
+
+On validation, at T-60 before outbound the overestimate of P(miss) on validation went from 3.0 to 1.6 percentage points; at T-15 before outbound the overestimate of P(miss) on validation went from 2.8 to 1.5 percentage points, so the fix reduces the bias on validation but does not remove it: the model still predicts more misses than happened.
 
 At T-60 before outbound, by what was known about the inbound: approaching 748 pairs (miss rate 6.0%, mean predicted 7.9%).
 
@@ -624,23 +646,8 @@ At T-15 before outbound the chosen tau gave precision 0.312, recall 0.667, alert
 
 Sensitivity of tau to the missed-alert cost: missed-alert cost 5: tau 0.22 (a calibrated forecast would give 0.17), missed-alert cost 3: tau 0.33 (a calibrated forecast would give 0.25), missed-alert cost 10: tau 0.08 (a calibrated forecast would give 0.09).
 
-You may be owed Delay Repay, on P(final arrival at least 15 minutes late). The chosen tau2 is 0.26. Test results with both forecast times pooled:
-
-| Policy | Threshold | Alerts | Precision | Recall | Alert rate | Cost per pair |
-|---|---|---|---|---|---|---|
-| Chosen tau2 | 0.26 | 350 of 1474 | 0.357 | 0.391 | 0.237 | 0.814 |
-| Always alert | 0.00 | 1474 of 1474 | 0.217 | 1.000 | 1.000 | 0.783 |
-| Never alert | 1.01 | 0 of 1474 | n/a | 0.000 | 0.000 | 1.085 |
-
-On validation the chosen tau2 cost 0.454 per pair against 0.866 for always alerting and 0.670 for never alerting. The event happened in 13.4% of validation pairs and 21.7% of test pairs, so a threshold chosen on the quieter validation weeks did not beat always alerting on test.
-
-At T-60 before outbound the chosen tau2 gave precision 0.358, recall 0.394, alert rate 0.239 and cost 0.811 per pair over 737 pairs.
-At T-15 before outbound the chosen tau2 gave precision 0.356, recall 0.388, alert rate 0.236 and cost 0.817 per pair over 737 pairs.
-
-Sensitivity of tau2 to the missed-alert cost: missed-alert cost 5: tau2 0.26 (a calibrated forecast would give 0.17), missed-alert cost 3: tau2 0.32 (a calibrated forecast would give 0.25), missed-alert cost 10: tau2 0.22 (a calibrated forecast would give 0.09).
-
 ### Limitations
 
-The minimum connection time is assumed, and the miss probabilities move with it. The inbound and outbound delays are drawn independently, so shared causes such as a signalling failure or a strike day are not modelled. In the history the two delays are only weakly correlated (0.11), and for the tightest changes, 10 to 14 minutes, independence overstated the miss rate (18.4% realised against 20.3% with the pairing broken), so the bias is not in the optimistic direction there. The history is summer and the first weeks of autumn, with no winter or storm season. Only two routes are in the model, and the connection test uses one hub and one pair of routes. The test block is 7 days, so the intervals are wide, and a small number of pairs drives the tails of every score. The Delay Repay alert counts a stranded passenger as at least 15 minutes late, which is an assumption. The costs behind both thresholds are assumed.
+The minimum connection time is assumed, and the miss probabilities move with it. The inbound and outbound delays are drawn independently, so shared causes such as a signalling failure or a strike day are not modelled. In the history the two delays are only weakly correlated (0.11), and for the tightest changes, 10 to 14 minutes, independence overstated the miss rate (18.4% realised against 20.3% with the pairing broken), so the bias is not in the optimistic direction there. The history is summer and the first weeks of autumn, with no winter or storm season. Only two routes are in the model, and the connection test uses one hub and one pair of routes. The test block is 7 days, so the intervals are wide, and a small number of pairs drives the tails of every score. The costs behind the threshold are assumed. There is no Delay Repay alert: an earlier forecast alert for it lost to always alerting on test when the late-arrival rate moved from 13.4% to 21.7%, and eligibility is known for certain once the train has arrived, so expected Delay Repay is shown as information only.
 
 <!-- connections:end -->
