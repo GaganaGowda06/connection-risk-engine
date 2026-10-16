@@ -106,7 +106,17 @@ def drift_report(
         except ValueError as exc:
             skipped.append(f"{name} ({exc})")
             continue
-        rows.append({"feature": name, **result, "status": status(result["psi"])})
+        row = {"feature": name, **result, "status": status(result["psi"])}
+        if "service_date" in live.columns and result["live_missing"] > 0:
+            # where the gaps are: a feed that was not yet captured shows up by service date
+            by_day = live.groupby(live["service_date"].astype(str))[name].agg(
+                rows="size", missing=lambda v: float(v.isna().mean())
+            )
+            row["live_missing_by_service_date"] = {
+                d: {"rows": int(r["rows"]), "missing": float(r["missing"])}
+                for d, r in by_day.iterrows()
+            }
+        rows.append(row)
     rows.sort(key=lambda r: -r["psi"])
     counts = {s: sum(1 for r in rows if r["status"] == s) for s in ("ok", "watch", "act")}
     return {
@@ -151,6 +161,20 @@ def write_report(report: dict[str, Any], out_dir: Path) -> None:
                 f"| {r['feature']} | {r['psi']:.3f} | {r['status']} | "
                 f"{r['train_missing']:.0%} | {r['live_missing']:.0%} |"
             )
+        for r in report["features"]:
+            by_day = r.get("live_missing_by_service_date")
+            if by_day:
+                lines += [
+                    "",
+                    f"Live rows with {r['feature']} missing, by service date:",
+                    "",
+                    "| Service date | Live services | Missing |",
+                    "|---|---|---|",
+                    *(
+                        f"| {d} | {v['rows']} | {v['missing']:.0%} |"
+                        for d, v in sorted(by_day.items())
+                    ),
+                ]
         if report["skipped"]:
             lines += ["", "Skipped: " + ", ".join(report["skipped"]) + "."]
     if w.get("caveat"):

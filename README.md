@@ -57,7 +57,7 @@ The 80% arrival range at Euston covered 0.874 (0.823 to 0.920) of the pairs that
 - **The 60-minute connection forecast.** Its Brier score, 0.0525, is no better than the gap-bucket baseline, 0.0528. At 60 minutes the model knows little that the timetable gap does not.
 - **The 15-minute gain.** On all 748 pairs the model looked clearly better (Brier 0.0406 against 0.0528), but 448 of those pairs had already arrived. On the 300 that had not, the gain is smaller, the intervals overlap, and the model is less well calibrated than the baseline.
 - **Calibration, only partly fixed.** The simulated P(miss) is too high. Rounding delays to whole minutes, as the data is, cut the validation overestimate from 9.7% to 8.3% against 6.7% realised. Platt scaling and isotonic regression were then tried on validation days and both lost to leaving the probability alone on held-out log loss (0.2656 unchanged, 0.2676 Platt, 0.2752 isotonic), so no recalibration is applied and the over-prediction remains.
-- **Live data drift.** The latest drift check (`reports/drift.json`, 175 live services) flags five features, and the operator code is missing for 41% of live services. Most of the rest is a short live window, but the missing operator code is a real gap, explained below.
+- **Live data drift.** The latest drift check (`reports/drift.json`, 184 live services) flags five features. Most of that is a short live window, and the missing operator code is explained below.
 
 ## Limitations
 
@@ -68,7 +68,7 @@ The 80% arrival range at Euston covered 0.874 (0.823 to 0.920) of the pairs that
 - The Euston train's delay is drawn from past trains at the same hour, not from how it is running today.
 - One fix was first spotted on test data. The whole-minute rounding was diagnosed after the first backtest printed validation and test results together, using pooled validation and test pairs. It has no fitted parameter, and its effect on validation pairs is reported above, but test pairs did inform the decision.
 - The alert costs are assumed, as above.
-- Operator codes are missing for 41% of live services in the latest check. The Darwin feed was only captured from 2026-10-15, and a service whose schedule message came before the capture started has no operator. The planned fix is Darwin's snapshot product, which would supply those schedules. Until then the page shows "operator unknown" and no Delay Repay amount for them. That explanation is a hypothesis; I did not break the missing share down by service date.
+- Operator codes are missing for 39% of live services in the latest drift check (`reports/drift.json`). All of them are services that were already scheduled when the Darwin capture began on 2026-10-15 at 10:31 UTC, so no schedule message for them exists in the raw data: 55% of services dated 2026-10-15 have no operator, and 0% of those dated 2026-10-16. The page shows "operator unknown" and no Delay Repay amount for them. Darwin's snapshot product could supply those schedules, but it would not help for anything captured since.
 - The Delay Repay rules for West Midlands Railway are recorded from a manual reading of its page, because the automatic fetch was refused, and the code is shared with London Northwestern Railway, whose rules are not recorded, so no payout is priced for it.
 
 ## How it works

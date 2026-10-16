@@ -87,3 +87,25 @@ def test_report_ranks_features_flags_skips_and_handles_thin_live_data(tmp_path):
     assert thin["features"] == [] and "fewer than" in thin["note"]
     write_report(thin, tmp_path)
     assert "fewer than" in (tmp_path / "drift.md").read_text()
+
+
+def test_missing_values_are_broken_down_by_service_date(tmp_path):
+    rng = np.random.default_rng(3)
+    train = pd.DataFrame({"x": rng.normal(size=500), "cat": rng.choice(["a", "b"], 500)})
+    n = 120
+    dates = ["2026-10-15"] * 60 + ["2026-10-16"] * 60
+    cat = np.array(["a", "b"] * 60, dtype=object)
+    cat[:30] = None  # the gaps are all on the first date
+    live = pd.DataFrame({"x": rng.normal(size=n), "cat": cat, "service_date": dates})
+    report = drift_report(train, live, ["x"], ["cat"])
+    by = {r["feature"]: r for r in report["features"]}
+    assert "live_missing_by_service_date" not in by["x"]  # nothing missing, nothing to explain
+    days = by["cat"]["live_missing_by_service_date"]
+    assert days["2026-10-15"] == {"rows": 60, "missing": 0.5}
+    assert days["2026-10-16"] == {"rows": 60, "missing": 0.0}
+    write_report(report, tmp_path)
+    text = (tmp_path / "drift.md").read_text(encoding="utf-8")
+    assert (
+        "Live rows with cat missing, by service date" in text
+        and "| 2026-10-15 | 60 | 50% |" in text
+    )

@@ -157,6 +157,19 @@ class LiveStore:
             if rid in known:
                 self._keep_schedule(row)
 
+    def reload_parsed(self, today: date | None = None) -> int:
+        """Merge the parsed tables for the tracked days into the in-memory state.
+
+        Called after new hours have been parsed. Events are deduplicated on (partition, offset)
+        and a schedule replaces an older one, so it is safe to repeat. It recovers schedules
+        that the raw-tail reader dropped: a tail only keeps a schedule for a service it has
+        already seen events for, so a schedule that arrived in an earlier hour is lost there.
+        """
+        with self._lock:
+            today = today or datetime.now(UTC).date()
+            days = [date.fromordinal(today.toordinal() - k) for k in range(self.days_back + 1)]
+            return self._load_parsed(days)
+
     def refresh(self, today: date | None = None) -> RefreshStats:
         """Reload parsed tables on first call, then read any raw hours not yet parsed."""
         import time

@@ -29,6 +29,11 @@ class DataQuality(BaseModel):
         default=None, description="The horizon the model was given, when a model was used"
     )
     route_in_training: bool
+    stale_parse: bool = Field(
+        default=False,
+        description="Closed hours of Darwin capture are waiting to be parsed, so the parsed "
+        "tables, schedules included, are behind the raw files",
+    )
     schedule_known: bool
     features_age_seconds: float | None
     notes: list[str]
@@ -71,6 +76,8 @@ class Health(BaseModel):
     darwin_data_age_minutes: float | None
     stale_live_data: bool
     watched_services: int
+    stale_parse: bool = False
+    parse_lag_hours: float | None = None
 
 
 class Warming(BaseModel):
