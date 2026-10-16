@@ -22,9 +22,11 @@ happen. It is not a promise and it is not what you will be paid on any one day. 
 operator's own published tiers when we could verify them, and the fare you type in.
 
 **Known limits.**
-- Only the Birmingham New Street to London Euston route has been checked so far.
+- Only two routes have been checked so far: Birmingham New Street to London Euston, and
+  Birmingham Aston to Birmingham New Street. This page lists the first.
 - The model learned from summer and early autumn. Winter and storm weather are not covered yet.
-- It uses a few fixed forecast points (120, 60 and 15 minutes out) and picks the nearest.
+- The model was trained at forecast points from 5 to 120 minutes before arrival, and is given
+  the real minutes to go. Closer than 5 minutes it has not been tested.
 - The live feed can lag. When it is more than 10 minutes old, the page says so.
 - Connections between trains are not included yet.
 """

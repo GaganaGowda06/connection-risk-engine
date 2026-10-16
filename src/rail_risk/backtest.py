@@ -31,11 +31,13 @@ from rail_risk.evaluation import (
     reliability,
 )
 from rail_risk.features.snapshots import FEATURE_COLUMNS
+from rail_risk.horizons import HORIZON_GRID
 from rail_risk.lateness import lateness_groups
 from rail_risk.models.pipeline import Fitted, fit_for_inference, load_train_config
 from rail_risk.repay import DelayRepayRules, load_rules
 
-TRAINED_HORIZONS = (120, 60, 15)
+MIN_TRAINED_MINUTES = HORIZON_GRID[0]  # a forecast closer than this is outside the trained grid
+TOP_EDGE = 15  # Delay Repay: the first tier
 STOP_COLUMNS = [
     "rid", "date_of_service", "toc_code", "location", "sched_arr", "sched_dep", "actual_arr",
     "actual_dep",
@@ -57,7 +59,8 @@ class Context:
     eus_rids: set[str]
     ast_rids: set[str]
     history: pd.DataFrame  # bhm-eus services on training dates
-    tail: TailModel
+    tails: dict[str, TailModel]  # by route, from that route's training rows
+    pooled_tail: TailModel
     interim: Path
     manifest: Path
 
@@ -104,17 +107,25 @@ def load_context(
         destination,
     )
 
-    # the tail comes from training rows only
+    # the tails come from training rows only, one per route and one pooled
     scored = model_snaps[model_snaps["label_delay_min"].notna()]
     train = scored[scored["service_date"].isin(train_days)]
     levels, q = fitted.quantile.distribution(train)
-    tail = TailModel.fit(
-        train["label_delay_min"].to_numpy(dtype=float), q[:, -1], lateness_groups(train)
-    )
+    outcome = train["label_delay_min"].to_numpy(dtype=float)
+    groups = lateness_groups(train)
+    pooled = TailModel.fit(outcome, q[:, -1], groups)
+    tails = {}
+    for route in sorted(train["route_id"].unique()):
+        m = (train["route_id"] == route).to_numpy()
+        tails[str(route)] = TailModel.fit(outcome[m], q[m, -1], groups[m])
     return Context(
         fitted, split, bands, cfg, eval_cfg, station, rules, snaps, model_snaps, all_stops,
-        eus_rids, ast_rids, history, tail, interim, manifest,
+        eus_rids, ast_rids, history, tails, pooled, interim, manifest,
     )  # fmt: skip
+
+
+def tail_for(ctx: Context, route: str) -> TailModel:
+    return ctx.tails.get(route, ctx.pooled_tail)
 
 
 def day_outbounds(ctx: Context, day: date, hub: str, destination: str) -> pd.DataFrame:
@@ -138,10 +149,12 @@ def exceedance_check(
     scored = test[test["label_delay_min"].notna()]
     levels, q = ctx.fitted.quantile.distribution(scored)
     groups = lateness_groups(scored)
+    routes = scored["route_id"].to_numpy()
     grid = (np.arange(1000) + 0.5) / 1000
     predicted = np.empty(len(scored))
     for i in range(len(scored)):
-        x = inbound_delay_draws(levels, q[i], grid, ctx.tail.for_group(int(groups[i])))
+        tail = tail_for(ctx, str(routes[i])).for_group(int(groups[i]))
+        x = inbound_delay_draws(levels, q[i], grid, tail)
         predicted[i] = float(np.mean(x >= threshold))
     observed = (scored["label_delay_min"].to_numpy(dtype=float) >= threshold).astype(float)
     dates = scored["service_date"].to_numpy()
@@ -165,10 +178,6 @@ def exceedance_check(
 
 
 # backtest
-
-
-def _nearest_horizon(h: float) -> int:
-    return min(TRAINED_HORIZONS, key=lambda t: abs(t - h))
 
 
 def build_pairs(
@@ -219,7 +228,8 @@ def build_pairs(
                 rows.append(
                     {
                         "date": day, "inbound_rid": rid, "outbound_rid": o.rid,
-                        "inbound_sched_arr": float(s_arr), "gap": float(gap),
+                        "inbound_sched_arr": float(s_arr), "inbound_actual_arr": float(a_arr),
+                        "gap": float(gap),
                         "planned_dep": float(o.sched_dep), "planned_arr": float(o.sched_arr),
                         "alt_index": list(alts.index), "missed": missed,
                         "realised_arrival": final, "stranded": stranded,
@@ -231,20 +241,107 @@ def build_pairs(
 def snapshots_at(
     ctx: Context, spark: Any, days: list[date], horizons: tuple[int, ...], routes_file: Path
 ) -> pd.DataFrame:
-    """Feature snapshots of ast-bhm services at arbitrary minutes before scheduled arrival."""
+    """Feature snapshots of ast-bhm services at arbitrary minutes before scheduled arrival.
+
+    The historical features come from the full history of every route, not only from `days`, so
+    they match the training snapshots. A horizon of zero or less is a forecast made after the
+    scheduled arrival.
+    """
     import pyspark.sql.functions as F
 
     from rail_risk.features.build import load_inputs
-    from rail_risk.features.snapshots import build_snapshots
+    from rail_risk.features.snapshots import build_snapshots, destination_services, history_labels
 
-    stops, rid_routes, route_dest = load_inputs(
-        spark, ctx.interim, routes_file, min(days), max(days)
-    )
+    stops, rid_routes, route_dest = load_inputs(spark, ctx.interim, routes_file)
+    services, _ = destination_services(spark, stops, rid_routes, route_dest)
+    labels = history_labels(services)
     stops = stops.filter(F.col("service_date").isin([d.isoformat() for d in days]))
     rid_routes = rid_routes.filter(F.col("route_id") == "ast-bhm")
-    snap = build_snapshots(spark, stops, rid_routes, route_dest, horizons=horizons)
+    snap = build_snapshots(spark, stops, rid_routes, route_dest, horizons=horizons, labels=labels)
     cols = ["rid", "route_id", "service_date", "horizon_min", *FEATURE_COLUMNS]
     return snap.select(*cols).toPandas()
+
+
+def gap_bucket(gap: pd.Series | np.ndarray, mct: float) -> np.ndarray:
+    """Scheduled-gap bucket for the baseline: 5 minute steps above the connection time, capped."""
+    return np.clip((np.asarray(gap, dtype=float) - mct) // 5, 0, 3).astype(int)
+
+
+class MissBaseline:
+    """Historical miss frequency by scheduled-gap bucket, fitted on training dates only."""
+
+    def __init__(self, train_pairs: pd.DataFrame, mct: float) -> None:
+        known = train_pairs[train_pairs["missed"].notna()]
+        if known.empty:
+            raise ValueError("no training pairs with a known outcome")
+        self.mct = mct
+        self.overall = float(known["missed"].mean())
+        by = known.assign(bucket=gap_bucket(known["gap"], mct)).groupby("bucket")["missed"]
+        self.rate = by.mean().to_dict()
+        self.count = by.size().to_dict()
+
+    def predict(self, gap: pd.Series | np.ndarray) -> np.ndarray:
+        return np.array([self.rate.get(int(b), self.overall) for b in gap_bucket(gap, self.mct)])
+
+
+def inbound_state(p: Any, k: int) -> tuple[str, int | None]:
+    """What is known about the inbound at the forecast time, k minutes before the outbound
+    departs: ("arrived", None), or ("approaching" or "due_or_late", exact minutes to its
+    scheduled arrival, which is zero or negative once that time has passed)."""
+    forecast_at = p.planned_dep - k
+    actual = p.inbound_actual_arr
+    if not np.isnan(actual) and actual <= forecast_at:
+        return "arrived", None
+    minutes = int(round(p.inbound_sched_arr - forecast_at))
+    return ("approaching" if minutes >= MIN_TRAINED_MINUTES else "due_or_late"), minutes
+
+
+def _date_ci(
+    dates: np.ndarray, hit: np.ndarray, resamples: int, seed: int
+) -> tuple[float, float, float]:
+    """(mean, ci low, ci high) of a 0/1 outcome with a bootstrap over service dates."""
+    udates, inverse = np.unique(dates, return_inverse=True)
+    n = np.bincount(inverse).astype(float)
+    hits = np.bincount(inverse, weights=hit.astype(float))
+    idx = np.random.default_rng(seed).integers(0, len(n), size=(resamples, len(n)))
+    boot = hits[idx].sum(axis=1) / n[idx].sum(axis=1)
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    return float(hit.mean()), float(lo), float(hi)
+
+
+def score_block(
+    sub: pd.DataFrame, bins_cap: int = 10, resamples: int = 1000, seed: int = 0
+) -> dict[str, Any]:
+    """Brier, ECE and reliability table for P(miss) against the baseline, and interval coverage."""
+    sub = sub[sub["missed"].notna()]
+    y = sub["missed"].to_numpy(dtype=float)
+    dates = sub["date"].to_numpy()
+    bins = int(min(bins_cap, max(2, len(sub) // 10)))
+    kw = {"bins": bins, "resamples": resamples, "seed": seed}
+    model_r = reliability(dates, sub["p_miss"].to_numpy(), y, **kw)
+    base_r = reliability(dates, sub["baseline"].to_numpy(), y, **kw)
+    have = sub[sub["realised_arrival"].notna() & sub["lo"].notna()]
+    out: dict[str, Any] = {
+        "pairs": int(len(sub)),
+        "dates": int(sub["date"].nunique()),
+        "miss_rate": float(y.mean()),
+        "mean_predicted_miss": float(sub["p_miss"].mean()),
+        "model": {"brier": model_r["brier"], "ece": model_r["ece"]},
+        "baseline": {"brier": base_r["brier"], "ece": base_r["ece"]},
+        "reliability_model": model_r["table"],
+        "reliability_baseline": base_r["table"],
+        "bins": bins,
+        "stranded_realised": int(sub["stranded"].sum()),
+        "interval_pairs": int(len(have)),
+        "interval_coverage": None,
+        "interval_width_min": None,
+    }
+    if len(have):
+        hit = (have["realised_arrival"] >= have["lo"]) & (have["realised_arrival"] <= have["hi"])
+        cov, lo, hi = _date_ci(have["date"].to_numpy(), hit.to_numpy(), resamples, seed)
+        out["interval_coverage"] = {"value": cov, "ci_low": lo, "ci_high": hi}
+        out["interval_width_min"] = float((have["hi"] - have["lo"]).mean())
+    return out
 
 
 def run_backtest(
@@ -257,8 +354,20 @@ def run_backtest(
     window: float = 20.0,
     draws: int = 2000,
     forecast_minutes: tuple[int, ...] = (60, 15),
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    """Out-of-sample connection backtest on ast-bhm inbound against bhm-eus outbound.
+
+    Pairs on test dates are scored; pairs on validation dates are also predicted so that alert
+    thresholds can be chosen without touching the test block. The baseline and every fitted part
+    (delay model, tail, outbound delays) use training dates only. Each forecast is made k minutes
+    before the outbound departs. What the inbound has done by then decides how it is forecast:
+    already arrived (its delay is known), still approaching (the model is given the exact
+    minutes to its scheduled arrival), or due or late (the scheduled arrival has passed or is
+    within the model's shortest horizon; the model sees the true state at that moment and, if
+    the train is overdue, the draws are conditioned on it not having arrived yet).
+    """
     mct = float(ctx.station.minutes)
+    block_of = {d: n for n, days in ctx.split.blocks().items() for d in days}
     db = sqlite3.connect(f"file:{ctx.manifest}?mode=ro", uri=True)
     try:
         rows = db.execute(
@@ -267,101 +376,110 @@ def run_backtest(
         ).fetchall()
     finally:
         db.close()
-    days = sorted(date.fromisoformat(r[0]) for r in rows)
+    ast_days = {date.fromisoformat(r[0]) for r in rows}
+    days = sorted(d for d in ast_days if d in block_of)
     pairs = build_pairs(ctx, days, hub, destination, mct, window)
+    pairs["block"] = pairs["date"].map(block_of)
+    pairs["bucket"] = gap_bucket(pairs["gap"], mct)
     summary: dict[str, Any] = {
-        "ast_bhm_days": len(days),
+        "ast_bhm_days": {
+            n: sum(1 for d in days if block_of[d] == n) for n in ("train", "validation", "test")
+        },
         "min_connection_time": mct,
         "min_connection_time_status": ctx.station.status,
         "window_minutes": window,
-        "pairs": int(len(pairs)),
-        "pairs_with_known_outcome": int(pairs["missed"].notna().sum()) if len(pairs) else 0,
+        "pairs": {n: int((pairs["block"] == n).sum()) for n in ("train", "validation", "test")},
+        "pairs_with_known_outcome": {
+            n: int(((pairs["block"] == n) & pairs["missed"].notna()).sum())
+            for n in ("train", "validation", "test")
+        },
+        "forecast_minutes": list(forecast_minutes),
+        "min_trained_minutes": MIN_TRAINED_MINUTES,
     }
-    if pairs.empty:
-        return {**summary, "scores": {}}
+    train_pairs = pairs[pairs["block"] == "train"]
+    scored_pairs = pairs[pairs["block"].isin(["validation", "test"])]
+    if train_pairs.empty or scored_pairs.empty:
+        return {**summary, "scores": {}}, pd.DataFrame()
+    baseline = MissBaseline(train_pairs, mct)
+    summary["baseline"] = {
+        "fitted_on": "training dates only",
+        "overall_miss_rate": baseline.overall,
+        "rate_by_gap_bucket": {str(k): float(v) for k, v in sorted(baseline.rate.items())},
+        "pairs_by_gap_bucket": {str(k): int(v) for k, v in sorted(baseline.count.items())},
+    }
 
-    # forecast time is k minutes before the outbound departure, which is h' = k - gap minutes
-    # relative to the inbound's scheduled arrival
-    need = sorted({int(round(k - g)) for g in pairs["gap"] for k in forecast_minutes})
-    snaps = snapshots_at(ctx, spark, days, tuple(need), routes_file)
-    snaps["service_date"] = pd.to_datetime(snaps["service_date"].astype(str)).dt.date
+    # snapshots needed: one per (inbound, minutes to its scheduled arrival) for pairs not yet in
+    plan = []
+    for k in forecast_minutes:
+        for p in scored_pairs.itertuples():
+            state, minutes = inbound_state(p, k)
+            plan.append((k, p, state, minutes))
+    need = sorted({m for _, _, st, m in plan if st != "arrived"})
+    snaps = snapshots_at(
+        ctx, spark, sorted(scored_pairs["date"].unique()), tuple(need), routes_file
+    )
     index = {(r.rid, int(r.horizon_min)): i for i, r in enumerate(snaps.itertuples(index=False))}
 
-    bucket = ((pairs["gap"] - mct) // 5).clip(upper=3).astype(int)
-    pairs["bucket"] = bucket
-    known = pairs[pairs["missed"].notna()]
-    out_models: dict[date, OutboundDelays] = {}
+    outbound = OutboundDelays.fit(ctx.history)  # training dates only
+    levels = np.asarray(ctx.fitted.quantile.chosen.quantiles)
+    tail_pool = tail_for(ctx, "ast-bhm")
     records = []
-    for k in forecast_minutes:
-        for p in pairs.itertuples():
-            h_prime = int(round(k - p.gap))
-            at = index.get((p.inbound_rid, h_prime))
+    for k, p, state, minutes in plan:
+        floor = None
+        if state == "arrived":
+            delay = float(p.inbound_actual_arr - p.inbound_sched_arr)
+            q = np.full(len(levels), delay)
+            tail = None
+        else:
+            at = index.get((p.inbound_rid, minutes))
             if at is None:
                 continue
             feat = snaps.iloc[[at]].copy()
-            feat["horizon_min"] = _nearest_horizon(h_prime)
-            levels, q = ctx.fitted.quantile.distribution(feat)
-            group = int(lateness_groups(feat)[0])
-            if p.date not in out_models:  # leave the evaluated date out of the history
-                out_models[p.date] = OutboundDelays.fit(
-                    ctx.history[ctx.history["date"] != p.date]
-                    if (ctx.history["date"] != p.date).any()
-                    else ctx.history
-                )
-            out = day_outbounds(ctx, p.date, hub, destination)
-            planned_row = out[(out["sched_dep"] - p.planned_dep).abs() < 0.5].iloc[0]
-            alts = [train_of(out.loc[j]) for j in p.alt_index]
-            res = simulate(
-                levels, q[0], p.inbound_sched_arr, train_of(planned_row), alts, mct,
-                out_models[p.date], ctx.bands.lower_edges, draws, ctx.cfg["seed"],
-                ctx.tail.for_group(group),
-            )  # fmt: skip
-            lo, hi = res.arrival_range(0.1, 0.9) or (np.nan, np.nan)
-            records.append(
-                {"k": k, "pair": p.Index, "p_miss": res.p_miss, "lo": lo, "hi": hi,
-                 "p_stranded": res.p_stranded}
-            )  # fmt: skip
+            _, q_all = ctx.fitted.quantile.distribution(feat)
+            q = q_all[0]
+            tail = tail_pool.for_group(int(lateness_groups(feat)[0]))
+            if minutes < 0:
+                floor = float(-minutes)
+        out = day_outbounds(ctx, p.date, hub, destination)
+        planned_row = out[(out["sched_dep"] - p.planned_dep).abs() < 0.5].iloc[0]
+        alts = [train_of(out.loc[j]) for j in p.alt_index]
+        res = simulate(
+            levels, q, p.inbound_sched_arr, train_of(planned_row), alts, mct, outbound,
+            ctx.bands.lower_edges, draws, ctx.cfg["seed"], tail, floor,
+        )  # fmt: skip
+        lo, hi = res.arrival_range(0.1, 0.9) or (np.nan, np.nan)
+        final_delay = (
+            np.nan if np.isnan(p.realised_arrival) else float(p.realised_arrival - p.planned_arr)
+        )
+        record = {
+            "block": p.block, "date": p.date, "k": k, "pair": p.Index, "state": state,
+            "minutes_to_arrival": minutes, "inbound_rid": p.inbound_rid,
+            "outbound_rid": p.outbound_rid, "gap": p.gap, "bucket": p.bucket,
+            "p_miss": res.p_miss, "p_stranded": res.p_stranded,
+            "p_final_ge15": float(res.band_probs[ctx.bands.lower_edges.index(TOP_EDGE) :].sum()),
+            "lo": lo, "hi": hi, "missed": p.missed, "stranded": p.stranded,
+            "realised_arrival": p.realised_arrival, "final_delay": final_delay,
+            "baseline": float(baseline.predict([p.gap])[0]),
+        }  # fmt: skip
+        records.append(record)
     pred = pd.DataFrame(records)
     scores: dict[str, Any] = {}
-    for k in forecast_minutes:
-        sub = pred[pred["k"] == k].merge(
-            pairs, left_on="pair", right_index=True, suffixes=("", "_pair")
-        )
-        sub = sub[sub["missed"].notna()]
-        if sub.empty:
-            continue
-        # baseline: historical miss frequency by scheduled-gap bucket, leaving the date out
-        base = []
-        for r in sub.itertuples():
-            same = known[(known["bucket"] == r.bucket) & (known["date"] != r.date)]
-            pool = known[known["date"] != r.date]
-            if len(same):
-                base.append(float(same["missed"].mean()))
-            elif len(pool):
-                base.append(float(pool["missed"].mean()))
-            else:  # one date only: in-sample, so this is a smoke test, not a score
-                base.append(float(known[known["bucket"] == r.bucket]["missed"].mean()))
-        sub = sub.assign(baseline=base)
-        y = sub["missed"].to_numpy(dtype=float)
-        dates = sub["date"].to_numpy()
-        bins = int(min(10, max(2, len(sub) // 10)))
-        kw = {"bins": bins, "resamples": 1000, "seed": ctx.cfg["seed"]}
-        model_r = reliability(dates, sub["p_miss"].to_numpy(), y, **kw)
-        base_r = reliability(dates, sub["baseline"].to_numpy(), y, **kw)
-        have = sub[sub["realised_arrival"].notna() & sub["lo"].notna()]
-        covered = (have["realised_arrival"] >= have["lo"]) & (
-            have["realised_arrival"] <= have["hi"]
-        )
-        scores[f"T-{k} before outbound"] = {
-            "pairs": int(len(sub)),
-            "miss_rate": float(y.mean()),
-            "mean_predicted_miss": float(sub["p_miss"].mean()),
-            "model": {"brier": model_r["brier"], "ece": model_r["ece"]},
-            "baseline": {"brier": base_r["brier"], "ece": base_r["ece"]},
-            "baseline_in_sample": bool(known["date"].nunique() < 2),
-            "interval_pairs": int(len(have)),
-            "interval_coverage": float(covered.mean()) if len(have) else None,
-            "interval_width_min": float((have["hi"] - have["lo"]).mean()) if len(have) else None,
-            "stranded_realised": int(sub["stranded"].sum()),
-        }
-    return {**summary, "scores": scores}
+    for block in ("test", "validation"):
+        for k in forecast_minutes:
+            sub = pred[(pred["block"] == block) & (pred["k"] == k)]
+            sub = sub[sub["missed"].notna()]
+            if sub.empty:
+                continue
+            cell = score_block(sub, seed=ctx.cfg["seed"])
+            cell["by_state"] = {
+                st: {
+                    "pairs": int(len(g)),
+                    "miss_rate": float(g["missed"].mean()),
+                    "mean_predicted_miss": float(g["p_miss"].mean()),
+                    "brier_model": float(((g["p_miss"] - g["missed"]) ** 2).mean()),
+                    "brier_baseline": float(((g["baseline"] - g["missed"]) ** 2).mean()),
+                }
+                for st, g in sub.groupby("state")
+            }
+            scores.setdefault(block, {})[f"T-{k} before outbound"] = cell
+    return {**summary, "scores": scores}, pred

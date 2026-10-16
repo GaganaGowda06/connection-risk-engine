@@ -103,9 +103,9 @@ def test_conformal_coverage_on_known_distribution():
     coverage = float(np.mean((y >= lo) & (y <= hi)))
     assert abs(coverage - 0.8) < 0.02
     assert float(np.mean(hi - lo)) > 0
-    # the offset is per horizon and the median is the point forecast
-    assert set(fit.global_offsets) == {60}
-    assert set(fit.offsets) == {(60, 0)}  # no lateness column: one group
+    # the offset is per horizon bucket (60 minutes is bucket 1) and the median is the point forecast
+    assert set(fit.global_offsets) == {1}
+    assert set(fit.offsets) == {("*", 1, 0)}  # no route or lateness column: one cell
 
 
 def test_calibrated_probabilities_sum_to_one():
@@ -154,8 +154,9 @@ def snapshots(days: int = 26, per_day: int = 24, seed: int = 4) -> pd.DataFrame:
                 row = {c: float(rng.normal()) for c in FEATURE_COLUMNS}
                 row.update(
                     {
+                        "minutes_to_arrival": float(h),
                         "rid": f"{d:%Y%m%d}{k:07d}",
-                        "route_id": "r1",
+                        "route_id": "r1" if k % 3 else "r2",
                         "service_date": d,
                         "horizon_min": h,
                         "toc_code": "VT" if k % 2 else "LM",
@@ -186,12 +187,14 @@ def test_run_is_deterministic_and_blind_to_test_labels():
     c, fit_c = run_training(altered, split, BANDS, EVAL_CFG, CFG)
     for key in ("params", "best_iteration", "conformal_offsets", "global_offsets",
                 "threshold_calibration",
-                "target_by_horizon", "group_merges", "calibration_comparison",
+                "target_by_horizon_bucket", "group_merges", "calibration_comparison",
                 "band_calibration", "band_calibration_cv_log_loss", "grid"):  # fmt: skip
         assert c["model"][key] == a["model"][key], key
     assert (fit_c.quantile.predict(rows)[1] == fit_a.quantile.predict(rows)[1]).all()
-    assert c["results"]["model"]["validation"] == a["results"]["model"]["validation"]
-    assert c["results"]["model"]["test"] != a["results"]["model"]["test"]  # but test scores move
+    for route in a["routes"]:
+        got, want = c["routes"][route]["results"]["model"], a["routes"][route]["results"]["model"]
+        assert got["validation"] == want["validation"]
+        assert got["test"] != want["test"]  # but test scores move
 
 
 def test_fit_all_returns_models_for_every_quantile_and_horizon():
@@ -201,9 +204,11 @@ def test_fit_all_returns_models_for_every_quantile_and_horizon():
     fitted = fit_all(train, valid, BANDS, CFG)
     for fit in fitted.quantile.fits.values():
         assert set(fit.boosters) == {0.1, 0.5, 0.9}
-        assert set(fit.global_offsets) == {120, 60, 15}
-        assert {h for h, _ in fit.offsets} == {120, 60, 15}
-    assert set(fitted.quantile.choice) == {120, 60, 15}
+        assert set(fit.global_offsets) == {0, 1, 2}  # 15, 60 and 120 minutes
+        assert {(r, b) for r, b, _ in fit.offsets} == {
+            (r, b) for r in ("r1", "r2", "*") for b in (0, 1, 2)
+        }
+    assert set(fitted.quantile.choice) == {0, 1, 2}
     assert set(fitted.quantile.choice.values()) <= {"direct", "residual"}
     probs = fitted.bands.predict(valid)
     assert probs.shape == (len(valid), 5) and probs.sum(axis=1) == pytest.approx(1.0)
@@ -297,7 +302,7 @@ def test_fit_models_keeps_the_better_target_per_horizon():
     cols = ["last_stop_lateness_min", "horizon_min"]
     model, grids = fit_models(df.iloc[:4000], df.iloc[4000:], df.iloc[4000:], CFG, cols)
     assert set(grids) == {"direct", "residual"}
-    assert model.choice[60] == min(model.tune_pinball, key=lambda t: model.tune_pinball[t][60])
+    assert model.choice[1] == min(model.tune_pinball, key=lambda t: model.tune_pinball[t][1])
 
 
 def test_threshold_probability_sums_the_bands_at_or_above_the_edge():

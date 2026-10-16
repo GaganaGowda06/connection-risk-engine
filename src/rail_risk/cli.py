@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from rail_risk.config import Settings, load_routes
+from rail_risk.horizons import HORIZON_GRID
 from rail_risk.logging import configure_logging, get_logger
 
 
@@ -323,7 +324,9 @@ def _connection(args: argparse.Namespace) -> int:
     chosen_note = "" if planned_min is not None else "  (first feasible outbound, none given)"
     later = [t for t in trains if t.sched_dep > planned.sched_dep][:3]
     group = int(lateness_groups(row)[0])
-    tail = ctx.tail.for_group(group)
+    from rail_risk.backtest import tail_for
+
+    tail = tail_for(ctx, str(row["route_id"].iloc[0])).for_group(group)
     from rail_risk.connection import OutboundDelays
 
     outbound = OutboundDelays.fit(ctx.history)
@@ -432,36 +435,57 @@ def _backtest(args: argparse.Namespace) -> int:
     except (ValueError, OSError, KeyError) as exc:
         log.error("backtest_invalid", error=str(exc))
         return 1
-    result = run_backtest(
+    from rail_risk.alerts import alert_report, load_alert_config, policy_stats
+    from rail_risk.connection_report import alert_inputs, write_connections_section
+
+    result, pred = run_backtest(
         ctx, build_spark(), settings.routes_file, window=args.window, draws=args.draws
     )
+    if not pred.empty:
+        pred_path = settings.data_dir / "features" / "connection_predictions.parquet"
+        pred.to_parquet(pred_path)  # data/ is git-ignored; kept for inspecting the scores
+        acfg = load_alert_config(args.alerts_file)
+        alerts = {}
+        for name, column, outcome in (
+            ("likely_to_miss", "p_miss", "missed"),
+            ("may_be_owed_delay_repay", "p_final_ge15", "delay15"),
+        ):
+            (pv, yv), (pt, yt), per_k = alert_inputs(pred, column, outcome)
+            report = alert_report(name, (pv, yv), (pt, yt), acfg)
+            report["test_by_forecast"] = {
+                k: policy_stats(p, y, report["tau"], acfg.false_alert, acfg.missed_alert)
+                for k, (p, y) in per_k.items()
+            }
+            alerts[name] = report
+        result["alerts"] = alerts
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
-    print(
-        f"ast-bhm days used: {result['ast_bhm_days']}; pairs scored (feasible on paper, gap "
-        f"{result['min_connection_time']:.0f} to "
-        f"{result['min_connection_time'] + result['window_minutes']:.0f} min): "
-        f"{result['pairs']}, with a known outcome: {result['pairs_with_known_outcome']}"
-    )
+    if args.report and not pred.empty:
+        write_connections_section(result, args.report)
+    print(f"ast-bhm days: {result['ast_bhm_days']}; pairs: {result['pairs']}")
     print(
         f"minimum connection time {result['min_connection_time']:.0f} min "
         f"({result['min_connection_time_status']})"
     )
-    for name, sc in result["scores"].items():
-        m, b = sc["model"], sc["baseline"]
-        flag = "  [baseline is in-sample: smoke test only]" if sc["baseline_in_sample"] else ""
-        print(
-            f"{name}: {sc['pairs']} pairs, miss rate {sc['miss_rate']:.3f}, "
-            f"mean predicted {sc['mean_predicted_miss']:.3f}; "
-            f"model Brier {m['brier']['value']:.3f} ECE {m['ece']['value']:.3f} vs "
-            f"baseline Brier {b['brier']['value']:.3f} ECE {b['ece']['value']:.3f}{flag}"
-        )
-        if sc["interval_coverage"] is not None:
+    for block, per_k in result["scores"].items():
+        for name, sc in per_k.items():
+            m, b = sc["model"], sc["baseline"]
             print(
-                f"  80% arrival range covered {sc['interval_coverage']:.3f} of "
-                f"{sc['interval_pairs']} pairs, mean width {sc['interval_width_min']:.1f} min; "
-                f"{sc['stranded_realised']} realised strandings"
+                f"[{block}] {name}: {sc['pairs']} pairs, miss rate {sc['miss_rate']:.3f}, "
+                f"mean predicted {sc['mean_predicted_miss']:.3f}; "
+                f"model Brier {m['brier']['value']:.4f} ECE {m['ece']['value']:.4f} vs "
+                f"baseline Brier {b['brier']['value']:.4f} ECE {b['ece']['value']:.4f}"
             )
+            if sc["interval_coverage"] is not None:
+                c = sc["interval_coverage"]
+                print(
+                    f"  80% arrival range covered {c['value']:.3f} "
+                    f"({c['ci_low']:.3f} to {c['ci_high']:.3f}) of {sc['interval_pairs']} pairs, "
+                    f"mean width {sc['interval_width_min']:.1f} min"
+                )
+    for name, a in result.get("alerts", {}).items():
+        t = a["test"]["chosen"]
+        print(f"{name}: tau {a['tau']:.2f}, test {t}")
     return 0
 
 
@@ -692,7 +716,7 @@ def main(argv: list[str] | None = None) -> int:
     cn.add_argument("--date", type=date.fromisoformat, required=True)
     cn.add_argument("--fare", type=float, required=True, help="fare in pounds, always supplied")
     cn.add_argument("--ticket", choices=["single", "return"], required=True)
-    cn.add_argument("--horizon", type=int, default=60, choices=[120, 60, 15])
+    cn.add_argument("--horizon", type=int, default=60, choices=list(HORIZON_GRID))
     cn.add_argument("--hub", default="BHM")
     cn.add_argument("--dest", default="EUS")
     cn.add_argument("--toc", default=None, help="TOC to price the payout under (default: outbound)")
@@ -728,6 +752,8 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     bt.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
     bt.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
+    bt.add_argument("--alerts-file", type=Path, default=Path("config/alerts.yaml"))
+    bt.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)

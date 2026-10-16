@@ -123,6 +123,66 @@ def test_actuals_after_t_never_change_features(spark, base, horizon, mode):
     assert checked >= 6
 
 
+def test_actuals_after_t_never_change_features_on_two_routes(spark):
+    """A second route with its own destination and history: features stay per route."""
+    rows, links = synthetic(DAYS)
+    other = []
+    for di, day in enumerate(DAYS):
+        for k in range(3):
+            rid = f"{day:%Y%m%d}{k + 100:07d}"
+            other += service(
+                rid,
+                day,
+                f"{9 + k:02d}15",
+                20,
+                [(di + 2 * k + i) % 7 for i in range(3)],
+                stations=["XXX", "YYY", "DDD"],
+            )
+            links.append((rid, "r2"))
+    rows += other
+    routes = {"r1": "EUS", "r2": "DDD"}
+    stops, rr = frames(spark, rows, links)
+    full = {
+        (r["rid"], r["horizon_min"]): r.asDict()
+        for r in build_snapshots(spark, stops, rr, routes).collect()
+    }
+    target, horizon = DAYS[3], 15
+    dest = {r[0]: r[5] for r in rows if r[4] in ("EUS", "DDD")}
+    altered = []
+    for r in rows:
+        r = list(r)
+        if r[1] == target:
+            t = dest[r[0]] - timedelta(minutes=horizon)
+            for idx in (7, 8):
+                if r[idx] is not None and r[idx] > t:
+                    r[idx] = None
+        altered.append(tuple(r))
+    stops2, rr2 = frames(spark, altered, links)
+    got = {
+        (r["rid"], r["horizon_min"]): r.asDict()
+        for r in build_snapshots(spark, stops2, rr2, routes).collect()
+    }
+    seen = {"r1": 0, "r2": 0}
+    for (rid, h), row in full.items():
+        if h != horizon or row["service_date"] != target:
+            continue
+        for col in FEATURE_COLUMNS:
+            assert same(row[col], got[(rid, h)][col]), (rid, h, col)
+        seen[row["route_id"]] += 1
+    assert seen["r1"] >= 6 and seen["r2"] == 3
+    # history is per route: a route's history features never include the other route
+    r2 = [
+        r for (rid, h), r in full.items() if r["route_id"] == "r2" and r["service_date"] == DAYS[4]
+    ]
+    assert r2 and all(r["hist_n_28d"] <= 4 * 3 for r in r2)
+
+
+def test_minutes_to_arrival_is_the_horizon(spark, base):
+    _, _, expected = base
+    assert {h for _, h in expected} == set(HORIZONS)
+    assert all(row["minutes_to_arrival"] == float(h) for (_, h), row in expected.items())
+
+
 def test_history_for_date_d_ignores_d_and_later(spark, base):
     rows, links, expected = base
     cutoff = DAYS[2]
@@ -226,9 +286,10 @@ def test_live_state_values_are_exact(spark):
     reason="needs ingested HSP data",
 )
 def test_real_data_rows_do_not_change_when_future_actuals_are_deleted(spark):
-    checked, altered, mismatches = leakage_check_real(
-        spark, Path("data/interim"), Path("config/routes.yaml"), n=50
+    checked, altered, mismatches, per_route = leakage_check_real(
+        spark, Path("data/interim"), Path("config/routes.yaml"), n=60, routes=("bhm-eus", "ast-bhm")
     )
-    assert checked == 50
+    assert checked == 60
+    assert per_route == {"ast-bhm": 30, "bhm-eus": 30}  # both routes are checked
     assert altered > 0  # the check removed real future actuals, so it is not vacuous
     assert mismatches == []

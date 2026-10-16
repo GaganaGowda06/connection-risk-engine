@@ -28,6 +28,7 @@ from rail_risk.repay import DelayRepayRules, ExpectedRepay, expected_repay
 LONDON = ZoneInfo("Europe/London")
 DEFAULT_DRAWS = 2000
 DEFAULT_SEED = 20261015
+MAX_FLOOR_LEVEL = 0.995  # a floor above this level of the distribution is held to it
 
 
 # stations
@@ -201,16 +202,29 @@ def simulate(
     draws: int = DEFAULT_DRAWS,
     seed: int = DEFAULT_SEED,
     tail: np.ndarray | None = None,
+    inbound_floor: float | None = None,
 ) -> ConnectionResult:
     """Monte Carlo over the inbound arrival and the outbound trains.
 
     The random numbers depend only on the seed and the number of trains, so changing the
     minimum connection time or shifting the inbound quantiles reuses the same draws and the
     miss probability moves monotonically.
+
+    `inbound_floor` conditions the inbound delay on being at least that many minutes, for a
+    forecast made after the scheduled arrival with the train still not in: the uniform draws are
+    squeezed into the part of the distribution above the floor.
     """
     rng = np.random.default_rng(seed)
     u = rng.random(draws)
-    arrival = inbound_sched_arr + inbound_delay_draws(levels, quantiles, u, tail)
+    if inbound_floor is not None:
+        q_sorted = np.maximum.accumulate(np.asarray(quantiles, dtype=float))
+        below = float(np.interp(inbound_floor, q_sorted, np.asarray(levels, dtype=float)))
+        below = min(max(below, 0.0), MAX_FLOOR_LEVEL)
+        u = below + (1.0 - below) * u
+    # Times are whole minutes in the data, so a delay is too. A continuous draw would split every
+    # tie between a late inbound and a late outbound as half a miss, where the data counts a tie
+    # as made (ready at or before departure). Rounding puts the draws on the data's grid.
+    arrival = inbound_sched_arr + np.rint(inbound_delay_draws(levels, quantiles, u, tail))
     trains = [planned, *alternatives]
     dep_actual, arr_actual = [], []
     for train in trains:

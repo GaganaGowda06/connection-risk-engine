@@ -1,9 +1,10 @@
 """LightGBM quantile models with conformalized quantile regression (CQR).
 
-One model per quantile, with the horizon as a feature. The conformal offset is computed on a
-calibration block separately per horizon, and for the Mondrian variant also per observed
-lateness group at T, then applied to the 0.1 to 0.9 band so that it reaches the nominal
-coverage within each group. Quantiles are sorted per row so they never cross.
+One model per quantile, with the minutes to arrival as a numeric feature and the route as a
+category. The conformal offset is computed on a calibration block separately per horizon bucket,
+and for the Mondrian variant also per route and observed lateness group at T, then applied to
+the 0.1 to 0.9 band so that it reaches the nominal coverage within each group. Quantiles are
+sorted per row so they never cross.
 
 The target is either the destination delay (direct) or that delay minus the lateness at T
 (residual), so the persistence forecast is the floor the residual model starts from.
@@ -18,12 +19,14 @@ import numpy as np
 import pandas as pd
 
 from rail_risk.features.snapshots import FEATURE_COLUMNS
+from rail_risk.horizons import DEFAULT_BUCKET_EDGES, horizon_buckets
 from rail_risk.lateness import DEFAULT_EDGES, lateness_base, lateness_groups, merge_groups
 from rail_risk.logging import get_logger
 
 TARGETS = ("direct", "residual")
 CATEGORICAL = ("toc_code", "route_id")
-DEFAULT_FEATURES = [*FEATURE_COLUMNS, "route_id", "horizon_min"]
+DEFAULT_FEATURES = [*FEATURE_COLUMNS, "route_id"]
+POOLED = "*"  # offsets over every route, used for a route with no calibration rows of its own
 
 
 def pinball(y: np.ndarray, pred: np.ndarray, q: float) -> float:
@@ -90,6 +93,12 @@ def apply_offset(
     return np.minimum(lo - offset, med), np.maximum(hi + offset, med)
 
 
+def _routes(df: pd.DataFrame) -> np.ndarray:
+    if "route_id" not in df.columns:
+        return np.full(len(df), POOLED, dtype=object)
+    return df["route_id"].astype(str).to_numpy(dtype=object)
+
+
 @dataclass
 class QuantileFit:
     design: Design
@@ -100,12 +109,15 @@ class QuantileFit:
     coverage: float
     target: str = "direct"
     interval: tuple[float, float] | None = None  # quantile levels bounding the CQR interval
-    dist_offsets: dict[tuple[int, int], dict[float, float]] = field(default_factory=dict)
-    global_offsets: dict[int, float] = field(default_factory=dict)
-    offsets: dict[tuple[int, int], float] = field(default_factory=dict)  # (horizon, group)
-    group_map: dict[int, dict[int, int]] = field(default_factory=dict)  # horizon -> group -> rep
+    dist_offsets: dict[tuple[str, int, int], dict[float, float]] = field(default_factory=dict)
+    global_offsets: dict[int, float] = field(default_factory=dict)  # horizon bucket -> offset
+    offsets: dict[tuple[str, int, int], float] = field(
+        default_factory=dict
+    )  # (route, bucket, group)
+    group_map: dict[tuple[str, int], dict[int, int]] = field(default_factory=dict)
     merges: list[dict[str, Any]] = field(default_factory=list)
     edges: tuple[float, ...] = DEFAULT_EDGES
+    hedges: tuple[float, ...] = DEFAULT_BUCKET_EDGES
 
     @property
     def _lo(self) -> int:
@@ -127,76 +139,113 @@ class QuantileFit:
             preds = preds + lateness_base(df)[:, None]
         return sort_quantiles(preds)
 
+    def _cells(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Per row: the route key to use, the horizon bucket and the merged lateness group.
+
+        A route with no calibration rows in the row's bucket uses the pooled offsets.
+        """
+        buckets = horizon_buckets(df["horizon_min"].to_numpy(dtype=float), self.hedges)
+        groups = lateness_groups(df, self.edges)
+        routes = np.array(
+            [
+                r if (r, int(b)) in self.group_map else POOLED
+                for r, b in zip(_routes(df), buckets, strict=True)
+            ],
+            dtype=object,
+        )
+        merged = np.array(
+            [
+                self.group_map[(r, int(b))][int(g)]
+                for r, b, g in zip(routes, buckets, groups, strict=True)
+            ]
+        )
+        return routes, buckets, merged
+
     def predict(
         self, df: pd.DataFrame, mode: str = "mondrian"
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """(point, lower, upper) after the conformal adjustment for each row's horizon.
+        """(point, lower, upper) after the conformal adjustment for each row's cell.
 
-        mode "mondrian" uses the offset of the row's lateness group, "global" the horizon's.
+        mode "mondrian" uses the offset of the row's route, horizon bucket and lateness group,
+        "global" the horizon bucket's alone.
         """
         raw = self.raw(df)
         lo, med, hi = raw[:, self._lo], raw[:, self._mid], raw[:, self._hi]
-        horizons = df["horizon_min"].to_numpy()
         if mode == "global":
-            offset = np.array([self.global_offsets[int(h)] for h in horizons])
+            buckets = horizon_buckets(df["horizon_min"].to_numpy(dtype=float), self.hedges)
+            offset = np.array([self.global_offsets[int(b)] for b in buckets])
         else:
-            groups = lateness_groups(df, self.edges)
+            routes, buckets, groups = self._cells(df)
             offset = np.array(
                 [
-                    self.offsets[(int(h), self.group_map[int(h)][int(g)])]
-                    for h, g in zip(horizons, groups, strict=True)
+                    self.offsets[(r, int(b), int(g))]
+                    for r, b, g in zip(routes, buckets, groups, strict=True)
                 ]
             )
         new_lo, new_hi = apply_offset(lo, med, hi, offset)
         return med, new_lo, new_hi
 
     def calibrate(
-        self, df: pd.DataFrame, edges: tuple[float, ...] = DEFAULT_EDGES, min_rows: int = 30
+        self,
+        df: pd.DataFrame,
+        edges: tuple[float, ...] = DEFAULT_EDGES,
+        min_rows: int = 30,
+        hedges: tuple[float, ...] = DEFAULT_BUCKET_EDGES,
     ) -> "QuantileFit":
-        """Offsets per horizon (global) and per horizon and lateness group (Mondrian).
+        """Offsets per horizon bucket (global) and per route, bucket and lateness group.
 
-        A group with fewer than `min_rows` calibration rows is merged into its neighbour.
+        A group with fewer than `min_rows` calibration rows is merged into its neighbour, and
+        each merge is logged. A pooled set over all routes backs up a route with no rows.
         """
         log = get_logger("conformal")
-        self.edges = tuple(edges)
+        self.edges, self.hedges = tuple(edges), tuple(hedges)
         raw = self.raw(df)
         y_all = df["label_delay_min"].to_numpy(dtype=float)
         groups_all = lateness_groups(df, self.edges)
-        for h, idx in df.groupby("horizon_min").indices.items():
-            h = int(h)
-            y, lo, hi, g = y_all[idx], raw[idx, self._lo], raw[idx, self._hi], groups_all[idx]
-            self.global_offsets[h] = conformal_offset(y, lo, hi, self.coverage)
-            counts = {k: int((g == k).sum()) for k in range(len(self.edges) + 2)}
-            mapping, merges = merge_groups(counts, min_rows)
-            self.group_map[h] = mapping
-            for small, into in merges:
-                record = {"horizon": h, "merged": small, "into": into, "counts": counts}
-                self.merges.append(record)
-                log.info("lateness_group_merged", target=self.target, **record)
-            for rep in sorted(set(mapping.values())):
-                mask = np.isin(g, [k for k, v in mapping.items() if v == rep])
-                self.offsets[(h, rep)] = conformal_offset(
-                    y[mask], lo[mask], hi[mask], self.coverage
-                )
-                # one-sided offsets for every quantile level, same groups and merges
-                self.dist_offsets[(h, rep)] = {
-                    q: _one_sided_offset(y[mask] - raw[idx][mask, k], q)
-                    for k, q in enumerate(self.quantiles)
-                }
+        buckets_all = horizon_buckets(df["horizon_min"].to_numpy(dtype=float), self.hedges)
+        routes_all = _routes(df)
+        for b in sorted(set(buckets_all.tolist())):
+            m = buckets_all == b
+            self.global_offsets[int(b)] = conformal_offset(
+                y_all[m], raw[m, self._lo], raw[m, self._hi], self.coverage
+            )
+        for route in [*sorted(set(routes_all.tolist()) - {POOLED}), POOLED]:
+            in_route = np.ones(len(df), bool) if route == POOLED else routes_all == route
+            for b in sorted(set(buckets_all[in_route].tolist())):
+                idx = np.flatnonzero(in_route & (buckets_all == b))
+                y, g = y_all[idx], groups_all[idx]
+                lo, hi = raw[idx, self._lo], raw[idx, self._hi]
+                counts = {k: int((g == k).sum()) for k in range(len(self.edges) + 2)}
+                mapping, merges = merge_groups(counts, min_rows)
+                self.group_map[(route, int(b))] = mapping
+                for small, into in merges:
+                    record = {"route": route, "bucket": int(b), "merged": small, "into": into,
+                              "counts": counts}  # fmt: skip
+                    self.merges.append(record)
+                    log.info("lateness_group_merged", target=self.target, **record)
+                for rep in sorted(set(mapping.values())):
+                    mask = np.isin(g, [k for k, v in mapping.items() if v == rep])
+                    self.offsets[(route, int(b), rep)] = conformal_offset(
+                        y[mask], lo[mask], hi[mask], self.coverage
+                    )
+                    # one-sided offsets for every quantile level, same groups and merges
+                    self.dist_offsets[(route, int(b), rep)] = {
+                        q: _one_sided_offset(y[mask] - raw[idx][mask, k], q)
+                        for k, q in enumerate(self.quantiles)
+                    }
         return self
 
     def distribution(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """(levels, quantiles) of the predictive delay: one row of calibrated quantiles per row.
 
-        Each level is shifted by the Mondrian one-sided offset of the row's horizon and lateness
-        group, then the row is sorted so the quantile function is monotone.
+        Each level is shifted by the Mondrian one-sided offset of the row's route, horizon
+        bucket and lateness group, then the row is sorted so the quantile function is monotone.
         """
         raw = self.raw(df)
-        horizons = df["horizon_min"].to_numpy()
-        groups = lateness_groups(df, self.edges)
+        routes, buckets, groups = self._cells(df)
         out = raw.copy()
-        for i, (h, g) in enumerate(zip(horizons, groups, strict=True)):
-            offs = self.dist_offsets[(int(h), self.group_map[int(h)][int(g)])]
+        for i, (r, b, g) in enumerate(zip(routes, buckets, groups, strict=True)):
+            offs = self.dist_offsets[(r, int(b), int(g))]
             out[i] = raw[i] + np.array([offs[q] for q in self.quantiles])
         return np.asarray(self.quantiles), np.sort(out, axis=1)
 
@@ -308,34 +357,44 @@ def fit_quantile(
     return best[1].calibrate(calibrate, *_mondrian(cfg)), results
 
 
-def _mondrian(cfg: dict[str, Any]) -> tuple[tuple[float, ...], int]:
+def _mondrian(cfg: dict[str, Any]) -> tuple[tuple[float, ...], int, tuple[float, ...]]:
     m = cfg.get("mondrian", {})
-    return tuple(m.get("edges", DEFAULT_EDGES)), int(m.get("min_rows", 30))
+    return (
+        tuple(m.get("edges", DEFAULT_EDGES)),
+        int(m.get("min_rows", 30)),
+        tuple(float(e) for e in m.get("horizon_bucket_edges", DEFAULT_BUCKET_EDGES)),
+    )
 
 
 @dataclass
 class QuantileModel:
-    """One fit per target. Each horizon uses the target with the lower tuning pinball loss."""
+    """One fit per target. Each horizon bucket uses the target with the lower tuning loss."""
 
     fits: dict[str, QuantileFit]
-    choice: dict[int, str]
+    choice: dict[int, str]  # horizon bucket -> target
     tune_pinball: dict[str, dict[int, float]]
+    hedges: tuple[float, ...] = DEFAULT_BUCKET_EDGES
+
+    def _by_bucket(self, df: pd.DataFrame):
+        buckets = horizon_buckets(df["horizon_min"].to_numpy(dtype=float), self.hedges)
+        for b in np.unique(buckets):
+            yield int(b), np.flatnonzero(buckets == b)
 
     def predict(
         self, df: pd.DataFrame, mode: str = "mondrian"
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         point, lo, hi = (np.empty(len(df)) for _ in range(3))
-        for h, idx in df.groupby("horizon_min").indices.items():
-            p, low, up = self.fits[self.choice[int(h)]].predict(df.iloc[idx], mode)
+        for b, idx in self._by_bucket(df):
+            p, low, up = self.fits[self.choice[b]].predict(df.iloc[idx], mode)
             point[idx], lo[idx], hi[idx] = p, low, up
         return point, lo, hi
 
     def distribution(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        """(levels, quantiles) per row from the target chosen for each row's horizon."""
+        """(levels, quantiles) per row from the target chosen for each row's horizon bucket."""
         levels = None
         out = None
-        for h, idx in df.groupby("horizon_min").indices.items():
-            lv, q = self.fits[self.choice[int(h)]].distribution(df.iloc[idx])
+        for b, idx in self._by_bucket(df):
+            lv, q = self.fits[self.choice[b]].distribution(df.iloc[idx])
             if out is None:
                 levels, out = lv, np.empty((len(df), q.shape[1]))
             out[idx] = q
@@ -343,7 +402,7 @@ class QuantileModel:
 
     @property
     def chosen(self) -> QuantileFit:
-        """The fit used for the most horizons, for the parameters logged to MLflow."""
+        """The fit used for the most buckets, for the parameters logged to MLflow."""
         names = list(self.choice.values())
         return self.fits[max(self.fits, key=names.count)]
 
@@ -355,21 +414,24 @@ def fit_models(
     cfg: dict[str, Any],
     columns: list[str] | None = None,
 ) -> tuple[QuantileModel, dict[str, list[dict[str, Any]]]]:
-    """Fit each candidate target, then keep the better one per horizon by tuning pinball loss."""
+    """Fit each candidate target, then keep the better one per horizon bucket by tuning loss."""
+    hedges = _mondrian(cfg)[2]
     fits, grids, losses = {}, {}, {}
     for target in cfg.get("targets", list(TARGETS)):
         fit, grid = fit_quantile(train, tune, calibrate, cfg, columns, target)
         fits[target], grids[target] = fit, grid
         raw = fit.raw(tune)
         y = tune["label_delay_min"].to_numpy(dtype=float)
+        buckets = horizon_buckets(tune["horizon_min"].to_numpy(dtype=float), hedges)
         losses[target] = {}
-        for h, idx in tune.groupby("horizon_min").indices.items():
-            losses[target][int(h)] = float(
+        for b in np.unique(buckets):
+            idx = np.flatnonzero(buckets == b)
+            losses[target][int(b)] = float(
                 np.mean([pinball(y[idx], raw[idx, k], q) for k, q in enumerate(fit.quantiles)])
             )
-    horizons = sorted({h for per in losses.values() for h in per})
+    all_buckets = sorted({b for per in losses.values() for b in per})
     choice = {
-        h: min(fits, key=lambda t, h=h: (losses[t].get(h, np.inf), list(fits).index(t)))
-        for h in horizons
+        b: min(fits, key=lambda t, b=b: (losses[t].get(b, np.inf), list(fits).index(t)))
+        for b in all_buckets
     }
-    return QuantileModel(fits, choice, losses), grids
+    return QuantileModel(fits, choice, losses, hedges), grids
