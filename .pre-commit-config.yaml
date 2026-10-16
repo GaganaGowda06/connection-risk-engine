@@ -26,3 +26,8 @@ repos:
         entry: .env files and data/raw must never be committed
         language: fail
         files: '(^|/)\.env$|^data/raw/'
+      - id: no-invisible-characters
+        name: no invisible Unicode in Markdown
+        entry: python3 scripts/check_invisible_chars.py
+        language: system
+        files: '\.md$'
