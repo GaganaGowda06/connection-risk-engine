@@ -54,6 +54,10 @@ def create_app(
             try:
                 if not first:
                     await loop.run_in_executor(None, service.store.refresh)
+                try:  # a parse failure must not stop the feature refresh
+                    await loop.run_in_executor(None, service.parse_closed_hours)
+                except Exception as exc:  # noqa: BLE001
+                    log.error("parse_failed", error=repr(exc))
                 await loop.run_in_executor(None, service.refresh_features)
                 first = False
             except Exception as exc:  # noqa: BLE001 - a bad refresh must not stop serving
@@ -108,13 +112,21 @@ def create_app(
         stale = service.is_stale()
         fallback = service.bundle is None
         return Health(
-            status="degraded" if (stale or fallback) else "ok",
+            status="degraded" if (stale or fallback or service.parse_is_stale()) else "ok",
             model_alias=alias,
             model_run_id=None if fallback else service.model_run_id,
             model_fallback=fallback,
             darwin_data_age_minutes=None if age is None else round(age, 1),
             stale_live_data=stale,
             watched_services=len(service.active_rids()),
+            stale_parse=service.parse_is_stale(),
+            parse_lag_hours=(
+                None
+                if service.parse_state is None
+                else None
+                if service.parse_state.lag_hours is None
+                else round(service.parse_state.lag_hours, 1)
+            ),
         )
 
     @app.get("/routes", response_model=list[RouteItem])
@@ -280,6 +292,13 @@ def default_service() -> RiskService:
 
     for name, value in load_connection_inputs(settings, bundle).items():
         setattr(service, name, value)
+    service.parse_enabled = os.access(data / "interim", os.W_OK) and (
+        os.environ.get("RAIL_PARSE_IN_API", "1") != "0"
+    )
+    try:
+        service.parse_closed_hours()  # catches up on hours closed while the API was down
+    except Exception as exc:  # noqa: BLE001
+        log.error("parse_failed", error=repr(exc))
     service.refresh_features()
     return service
 

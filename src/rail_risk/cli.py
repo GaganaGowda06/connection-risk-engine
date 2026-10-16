@@ -616,9 +616,11 @@ def _drift(args: argparse.Namespace) -> int:
             "minutes": args.minutes,
             "days_requested": args.days,
             "caveat": (
-                "Darwin capture started on 2026-10-15, so the live window holds fewer than "
-                f"{args.days} days of services. Daily and weekly patterns in the live sample are "
-                "partial, and PSI on a short window is noisy."
+                "Darwin capture started on 2026-10-15 at 10:31 UTC, so the live window holds "
+                f"fewer than {args.days} days of services. Daily and weekly patterns in the "
+                "live sample are partial, and PSI on a short window is noisy. Services that "
+                "were scheduled before the capture began have no schedule message in the raw "
+                "data, so their operator is missing; see the table by service date."
             ),
         },
     )  # fmt: skip

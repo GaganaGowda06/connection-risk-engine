@@ -115,6 +115,10 @@ class RiskService:
     tails: dict[str, TailModel] = field(default_factory=dict)
     pooled_tail: TailModel | None = None
     alert_tau: float | None = None
+    parse_enabled: bool = (
+        False  # parse closed Darwin hours from the refresher (needs a writable data dir)
+    )
+    parse_state: Any | None = None  # the latest ParseLag
     pmiss_calibration: Any | None = None  # a PMissCalibration, applied while the inbound is not in
     _outbound_cache: dict[Any, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
 
@@ -126,6 +130,44 @@ class RiskService:
     def is_stale(self) -> bool:
         age = self.age_minutes()
         return age is None or age > STALE_MINUTES
+
+    def parse_is_stale(self) -> bool:
+        return bool(self.parse_state is not None and self.parse_state.stale)
+
+    def _parse_notes(self) -> list[str]:
+        if not self.parse_is_stale():
+            return []
+        return [
+            "closed hours of Darwin capture are waiting to be parsed, so some schedules, such as "
+            "the operator, may be missing"
+        ]
+
+    def parse_closed_hours(self) -> int:
+        """Parse any newly closed hourly Darwin file, merge it into the live state, and update
+        the parse-lag check. Already parsed files are skipped, so a call with nothing new only
+        lists files. A failure is returned as zero and leaves the lag check to report it."""
+        from rail_risk.ingest.darwin import DarwinManifest, parse_directory
+        from rail_risk.status import parse_lag
+
+        manifest_path = self.store.interim / "darwin_manifest.sqlite"
+        parsed = 0
+        if self.parse_enabled:
+            manifest = DarwinManifest(manifest_path)
+            try:
+                parsed = len(
+                    parse_directory(
+                        self.store.raw,
+                        self.store.interim,
+                        manifest,
+                        now=pd.Timestamp(self.now()).to_pydatetime(),
+                    )
+                )
+            finally:
+                manifest.close()
+            if parsed:
+                self.store.reload_parsed()
+        self.parse_state = parse_lag(self.store.raw, manifest_path)
+        return parsed
 
     def active_rids(self) -> list[str]:
         """Services with a scheduled arrival at a route destination in the tracking window."""
@@ -284,6 +326,7 @@ class RiskService:
                 "Darwin data is older than "
                 f"{STALE_MINUTES:.0f} minutes, so the service is treated as not started"
             )
+        notes += self._parse_notes()
         cancelled, reason = self.store.cancellation(rid)
         table, route_id, dest = self._prepare(rid, route, strip_live=stale)
         quality = dict(
@@ -293,6 +336,7 @@ class RiskService:
             horizon_snapped_from_minutes=None,
             horizon_used_minutes=None,
             route_in_training=route_id in self.route_model_trained_on,
+            stale_parse=self.parse_is_stale(),
             schedule_known=rid in self.store.schedules,
             features_age_seconds=None,
         )
@@ -570,6 +614,7 @@ class RiskService:
                 f"Darwin data is older than {STALE_MINUTES:.0f} minutes, so the inbound is "
                 "treated as not started and nothing is known about the outbound's running"
             )
+        notes += self._parse_notes()
         try:
             table, route_id, dest = self._prepare(inbound_rid, INBOUND_ROUTE, strip_live=stale)
         except NotFound:
@@ -581,6 +626,7 @@ class RiskService:
             horizon_snapped_from_minutes=None,
             horizon_used_minutes=None,
             route_in_training=route_id in self.route_model_trained_on,
+            stale_parse=self.parse_is_stale(),
             schedule_known=inbound_rid in self.store.schedules,
             features_age_seconds=None,
         )

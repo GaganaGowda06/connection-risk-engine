@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -46,6 +47,51 @@ def hsp_status(manifest_path: Path) -> list[str]:
         db.close()
 
 
+STALE_PARSE_HOURS = 2.0
+
+
+@dataclass(frozen=True)
+class ParseLag:
+    """How far the parsed Darwin tables trail the raw capture, in whole hourly files."""
+
+    newest_raw: str | None  # "YYYY-MM-DD/HH"
+    newest_parsed: str | None
+    lag_hours: float | None
+    stale: bool
+
+
+def _key_time(key: str) -> datetime:
+    day, hour = key.split("/")
+    return datetime.fromisoformat(day).replace(hour=int(hour), tzinfo=UTC)
+
+
+def parse_lag(raw_root: Path, manifest: Path) -> ParseLag:
+    """The newest raw hourly file against the newest parsed one.
+
+    The current hour is never parsed, so a healthy lag is about one hour. More than
+    STALE_PARSE_HOURS behind means closed hours are waiting to be parsed, and anything that
+    reads only the parsed tables is missing their messages, schedules included. No raw files
+    is not stale. Raw files with nothing parsed at all is stale.
+    """
+    raw = sorted(f"{p.parent.name}/{p.name.split('.')[0]}" for p in raw_root.glob("*/*.jsonl.gz"))
+    if not raw:
+        return ParseLag(None, None, None, False)
+    newest_raw = max(raw, key=_key_time)
+    parsed: list[str] = []
+    if manifest.exists():
+        db = sqlite3.connect(f"file:{manifest}?mode=ro", uri=True)
+        try:
+            parsed = [r[0] for r in db.execute("SELECT key FROM files")]
+        finally:
+            db.close()
+    parsed = [k for k in parsed if "/" in k]
+    if not parsed:
+        return ParseLag(newest_raw, None, None, True)
+    newest_parsed = max(parsed, key=_key_time)
+    lag = (_key_time(newest_raw) - _key_time(newest_parsed)).total_seconds() / 3600.0
+    return ParseLag(newest_raw, newest_parsed, lag, lag > STALE_PARSE_HOURS)
+
+
 def darwin_status(root: Path, interim: Path | None = None) -> list[str]:
     files = sorted(root.glob("*/*.jsonl.gz"), key=lambda p: p.stat().st_mtime)
     if not files:
@@ -79,4 +125,12 @@ def darwin_status(root: Path, interim: Path | None = None) -> list[str]:
         )
     else:
         lines.append("parsed: nothing yet (run rail-risk parse-darwin)")
+    lag = parse_lag(root, manifest)
+    if lag.newest_raw is not None:
+        how = "nothing parsed" if lag.lag_hours is None else f"{lag.lag_hours:.0f} h behind"
+        lines.append(
+            f"parse lag: newest raw {lag.newest_raw}, newest parsed {lag.newest_parsed}, {how}"
+            + (f"  STALE (more than {STALE_PARSE_HOURS:.0f} h; run rail-risk parse-darwin)"
+               if lag.stale else "")
+        )  # fmt: skip
     return lines
