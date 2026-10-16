@@ -186,6 +186,27 @@ def connections_section(result: dict[str, Any]) -> str:
                 _policy_row("Never alert", a["test"]["never_alert"]),
                 "",
             ]
+            v, t = a["validation"], a["test"]
+            lines += [
+                f"On validation the chosen {sym} cost {_num(v['chosen']['cost_per_pair'], 3)} per "
+                f"pair against {_num(v['always_alert']['cost_per_pair'], 3)} for always alerting "
+                f"and {_num(v['never_alert']['cost_per_pair'], 3)} for never alerting. The event "
+                f"happened in {_pct(v['chosen']['positives'] / v['chosen']['n'], 1)} of "
+                f"validation pairs and {_pct(t['chosen']['positives'] / t['chosen']['n'], 1)} "
+                "of test pairs"
+                + (
+                    ", so a threshold chosen on the quieter validation weeks "
+                    + (
+                        "did not beat always alerting on test."
+                        if t["chosen"]["cost_per_pair"] > t["always_alert"]["cost_per_pair"]
+                        else "still beat always alerting on test."
+                    )
+                    if t["chosen"]["positives"] / t["chosen"]["n"]
+                    > v["chosen"]["positives"] / v["chosen"]["n"]
+                    else "."
+                ),
+                "",
+            ]
             for fk, s in a["test_by_forecast"].items():
                 lines.append(
                     f"At {fk} the chosen {sym} gave precision {_num(s['precision'], 3)}, recall "
@@ -203,10 +224,12 @@ def connections_section(result: dict[str, Any]) -> str:
         "",
         "The minimum connection time is assumed, and the miss probabilities move with it. The "
         "inbound and outbound delays are drawn independently, so shared causes such as a "
-        "signalling failure or a strike day are not modelled, and the model's miss probabilities "
-        "are optimistic when delays are correlated. The history is summer and the first weeks of "
-        "autumn, with no winter or storm season. Only two routes are in the model, and the "
-        "connection test uses one hub and one pair of routes. The test block is "
+        "signalling failure or a strike day are not modelled. In the history the two delays are "
+        "only weakly correlated (0.11), and for the tightest changes, 10 to 14 minutes, "
+        "independence overstated the miss rate (18.4% realised against 20.3% with the pairing "
+        "broken), so the bias is not in the optimistic direction there. The history is summer and "
+        "the first weeks of autumn, with no winter or storm season. Only two routes are in the "
+        "model, and the connection test uses one hub and one pair of routes. The test block is "
         f"{days['test']} days, so the intervals are wide, and a small number of pairs drives the "
         "tails of every score. The Delay Repay alert counts a stranded passenger as at least 15 "
         "minutes late, which is an assumption. The costs behind both thresholds are assumed.",

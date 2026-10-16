@@ -287,7 +287,12 @@ def test_live_state_values_are_exact(spark):
 )
 def test_real_data_rows_do_not_change_when_future_actuals_are_deleted(spark):
     checked, altered, mismatches, per_route = leakage_check_real(
-        spark, Path("data/interim"), Path("config/routes.yaml"), n=60, routes=("bhm-eus", "ast-bhm")
+        spark,
+        Path("data/interim"),
+        Path("config/routes.yaml"),
+        n=60,
+        routes=("bhm-eus", "ast-bhm"),
+        last_days=45,  # the shared test session has 1 GB, which six horizons of all history exceed
     )
     assert checked == 60
     assert per_route == {"ast-bhm": 30, "bhm-eus": 30}  # both routes are checked

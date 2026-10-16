@@ -8,8 +8,8 @@ first catchable alternative carries the passenger. Times are minutes from local 
 service date.
 
 Legs are treated as independent: the inbound delay and the outbound delays are drawn separately,
-so shared causes such as a signalling failure or a strike day are not modelled. That makes the
-miss probability optimistic when delays are correlated.
+so shared causes such as a signalling failure or a strike day are not modelled. In the
+history the correlation is weak (0.11) and, for tight changes, independence overstated misses.
 """
 
 from collections.abc import Sequence

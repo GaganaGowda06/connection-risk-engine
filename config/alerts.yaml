@@ -12,5 +12,10 @@ grid_step: 0.01
 alerts:
   likely_to_miss: "P(miss) at or above tau"
   may_be_owed_delay_repay: "P(final arrival at least 15 minutes late) at or above tau2"
-# tau and tau2 as chosen by `rail-risk backtest-connections` on the validation pairs
-# (filled in from reports/connection_backtest.json after the reportable run)
+# tau and tau2 as chosen by `rail-risk backtest-connections` on the validation pairs, with the
+# costs above, from the model of MLflow run 4c88d55bbbed49018e3ce05e8199ce5b (commit fc20d82).
+# They are results, not inputs: rerunning the command recomputes them in
+# reports/connection_backtest.json. Nothing serves these alerts yet.
+chosen:
+  tau: 0.22   # likely to miss your connection, on P(miss)
+  tau2: 0.26  # you may be owed Delay Repay, on P(final arrival at least 15 minutes late)
