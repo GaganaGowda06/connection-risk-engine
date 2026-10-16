@@ -64,6 +64,14 @@ def load_connection_inputs(settings: Any, bundle: Any) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - /connection then answers 503
         log.error("connection_config_failed", error=repr(exc))
     try:
+        from rail_risk import pmiss
+
+        path = Path("config/pmiss_calibration.json")
+        if path.exists():
+            out["pmiss_calibration"] = pmiss.load(path)
+    except Exception as exc:  # noqa: BLE001 - raw P(miss) is served instead
+        log.error("pmiss_calibration_failed", error=repr(exc))
+    try:
         out["outbound_history"] = outbound_history(settings.data_dir / "interim")
     except Exception as exc:  # noqa: BLE001
         log.error("outbound_history_failed", error=repr(exc))

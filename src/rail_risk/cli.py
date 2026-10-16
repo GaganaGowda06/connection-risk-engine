@@ -437,6 +437,7 @@ def _backtest(args: argparse.Namespace) -> int:
         return 1
     from rail_risk.alerts import alert_report, load_alert_config, policy_stats
     from rail_risk.connection_report import alert_inputs, write_connections_section
+    from rail_risk.models.pipeline import git_state
 
     result, pred = run_backtest(
         ctx, build_spark(), settings.routes_file, window=args.window, draws=args.draws
@@ -444,9 +445,30 @@ def _backtest(args: argparse.Namespace) -> int:
     if not pred.empty:
         pred_path = settings.data_dir / "features" / "connection_predictions.parquet"
         pred.to_parquet(pred_path)  # data/ is git-ignored; kept for inspecting the scores
+        from rail_risk import pmiss
+        from rail_risk.backtest import calibrated_scores
+
+        fit_rows = pmiss.split_frame(pred)
+        sha, _ = git_state()
+        cal = pmiss.fit_pmiss_calibration(
+            fit_rows["p_miss"].to_numpy(), fit_rows["missed"].to_numpy(),
+            fit_rows["date"].to_numpy(),
+            provenance={
+                "fitted_on": "validation pairs whose inbound had not arrived",
+                "git_commit": sha,
+                "pairs": int(len(fit_rows)),
+            },
+        )  # fmt: skip
+        pmiss.save(cal, args.pmiss_file)
+        pred = pmiss.apply_to_predictions(pred, cal)
+        result["pmiss_calibration"] = {
+            **cal.to_dict(),
+            "scores_after": calibrated_scores(pred, ctx.cfg["seed"]),
+        }
+        pred.to_parquet(pred_path)
         acfg = load_alert_config(args.alerts_file)
         alerts = {}
-        for name, column, outcome in (("likely_to_miss", "p_miss", "missed"),):
+        for name, column, outcome in (("likely_to_miss", "p_miss_cal", "missed"),):
             (pv, yv), (pt, yt), per_k = alert_inputs(pred, column, outcome)
             report = alert_report(name, (pv, yv), (pt, yt), acfg)
             report["test_by_forecast"] = {
@@ -454,6 +476,11 @@ def _backtest(args: argparse.Namespace) -> int:
                 for k, (p, y) in per_k.items()
             }
             alerts[name] = report
+        (rv, ryv), (rt, ryt), _ = alert_inputs(pred, "p_miss", "missed")
+        before = alert_report("likely_to_miss", (rv, ryv), (rt, ryt), acfg)
+        result["alerts_before_calibration"] = {
+            "tau": before["tau"], "test": before["test"]["chosen"],
+        }  # fmt: skip
         result["alerts"] = alerts
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
@@ -480,6 +507,19 @@ def _backtest(args: argparse.Namespace) -> int:
                     f"({c['ci_low']:.3f} to {c['ci_high']:.3f}) of {sc['interval_pairs']} pairs, "
                     f"mean width {sc['interval_width_min']:.1f} min"
                 )
+    pc = result.get("pmiss_calibration")
+    if pc:
+        print(
+            f"P(miss) calibration: {pc['method']} chosen on {pc['n_tune']} tune pairs "
+            f"(log loss {pc['tune_log_loss']}), fitted on {pc['n_calibrate']}"
+        )
+        for name, sc in pc["scores_after"].get("test", {}).items():
+            w = sc["not_yet_arrived"] or sc["all"]
+            print(
+                f"  [test] {name}: mean predicted {w['mean_predicted_miss']:.3f} vs "
+                f"realised {w['miss_rate']:.3f}, Brier {w['model']['brier']['value']:.4f}, "
+                f"ECE {w['model']['ece']['value']:.4f}"
+            )
     for name, a in result.get("alerts", {}).items():
         t = a["test"]["chosen"]
         print(f"{name}: tau {a['tau']:.2f}, test {t}")
@@ -751,6 +791,7 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     bt.add_argument("--alerts-file", type=Path, default=Path("config/alerts.yaml"))
     bt.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
+    bt.add_argument("--pmiss-file", type=Path, default=Path("config/pmiss_calibration.json"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
