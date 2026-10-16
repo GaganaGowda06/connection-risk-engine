@@ -338,6 +338,30 @@ def score_block(
     return out
 
 
+def calibrated_scores(pred: pd.DataFrame, seed: int) -> dict[str, Any]:
+    """Scores of the recalibrated P(miss) (column p_miss_cal), by block and forecast time, for all
+    pairs and for the pairs whose inbound had not arrived. Same metrics as the raw scores."""
+    out: dict[str, Any] = {}
+    for block in ("test", "validation"):
+        for k in sorted(pred["k"].unique(), reverse=True):
+            sub = pred[(pred["block"] == block) & (pred["k"] == k) & pred["missed"].notna()]
+            if sub.empty:
+                continue
+            swap = lambda d: d.assign(p_miss=d["p_miss_cal"])  # noqa: E731
+            cell = {"all": score_block(swap(sub), seed=seed)}
+            waiting = sub[sub["state"] != "arrived"]
+            cell["not_yet_arrived"] = (
+                {
+                    **score_block(swap(waiting), seed=seed),
+                    "excluded_arrived": len(sub) - len(waiting),
+                }
+                if len(waiting) >= 20
+                else None
+            )
+            out.setdefault(block, {})[f"T-{k} before outbound"] = cell
+    return out
+
+
 def rounding_check(sub: pd.DataFrame, seed: int, resamples: int = 1000) -> dict[str, Any]:
     """Mean P(miss) before and after rounding the inbound draws, against the realised rate.
 

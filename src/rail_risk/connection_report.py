@@ -68,6 +68,62 @@ def _reliability_rows(sc: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _calibration_lines(result: dict[str, Any], pc: dict[str, Any]) -> list[str]:
+    """The P(miss) recalibration: how the method was chosen and the test scores before and after."""
+    ll = ", ".join(f"{k} {v:.4f}" for k, v in pc["tune_log_loss"].items())
+    method = pc["method"]
+    lines = [
+        "### Recalibration of P(miss)",
+        "",
+        "The simulated P(miss) over-predicts, so a map from it to the observed miss frequency was "
+        "chosen among none, Platt scaling and isotonic regression. It uses validation pairs "
+        "only, and only forecasts whose inbound had not arrived, because once the inbound has "
+        "arrived its delay is known. Those pairs were split by date: the methods were fitted on "
+        f"the later half ({pc['n_calibrate']} forecasts) and scored by log loss on the earlier "
+        f"half ({pc['n_tune']} forecasts). Tune-half log loss was {ll}. "
+        + (
+            "No recalibration won, so none is applied and the scores below are unchanged."
+            if method == "none"
+            else f"The chosen method is {method}. It is applied to forecasts whose inbound has "
+            "not arrived, and the alert threshold was chosen again on the recalibrated "
+            "validation probabilities with the same costs."
+        ),
+        "",
+        "| Test, forecast | Pairs | Realised miss rate | Mean predicted before | "
+        "Mean predicted after | Brier before | Brier after | ECE before | ECE after |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    after = pc["scores_after"].get("test", {})
+    for name, sc in result["scores"].get("test", {}).items():
+        a = after.get(name, {})
+        for label, key, raw in (
+            ("all pairs", "all", sc),
+            ("inbound not yet arrived", "not_yet_arrived", sc.get("not_yet_arrived")),
+        ):
+            now = a.get(key)
+            if raw is None or now is None:
+                continue
+            lines.append(
+                f"| {name}, {label} | {raw['pairs']} | {_pct(raw['miss_rate'], 1)} | "
+                f"{_pct(raw['mean_predicted_miss'], 1)} | {_pct(now['mean_predicted_miss'], 1)} | "
+                f"{_ci(raw['model']['brier'], 4)} | {_ci(now['model']['brier'], 4)} | "
+                f"{_ci(raw['model']['ece'], 4)} | {_ci(now['model']['ece'], 4)} |"
+            )
+    lines += [
+        "",
+        "The test pairs were scored once with this map, and nothing about it was chosen using "
+        "them.",
+        "",
+    ]
+    before = result.get("alerts_before_calibration")
+    if before:
+        lines += [
+            f"The alert threshold before recalibration was {before['tau']:.2f}.",
+            "",
+        ]
+    return lines
+
+
 def _rounding_verdict(result: dict[str, Any]) -> str:
     """A plain statement of whether the rounding fix also corrected the bias on validation."""
     parts = []
@@ -178,6 +234,9 @@ def connections_section(result: dict[str, Any]) -> str:
             f"{_ci(w['baseline']['ece'], 4)} |"
         )
     lines += [""]
+    pc = result.get("pmiss_calibration")
+    if pc:
+        lines += _calibration_lines(result, pc)
     if any("rounding_check" in sc for blk in result["scores"].values() for sc in blk.values()):
         lines += [
             "### Check of the whole-minute rounding in the simulator",

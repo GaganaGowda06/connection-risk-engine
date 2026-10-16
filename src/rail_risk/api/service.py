@@ -115,6 +115,7 @@ class RiskService:
     tails: dict[str, TailModel] = field(default_factory=dict)
     pooled_tail: TailModel | None = None
     alert_tau: float | None = None
+    pmiss_calibration: Any | None = None  # a PMissCalibration, applied while the inbound is not in
     _outbound_cache: dict[Any, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
 
     # live state
@@ -630,6 +631,12 @@ class RiskService:
             rid=inbound_rid, scheduled_arrival=clock(sched), state=state,
             minutes_to_arrival=minutes, expected_delay_minutes=round(float(expected), 1),
         )  # fmt: skip
+        if self.pmiss_calibration is not None and self.pmiss_calibration.method != "none":
+            if state != "arrived":
+                notes.append(
+                    f"P(miss) is recalibrated ({self.pmiss_calibration.method}) on validation "
+                    "pairs at the 10 minute change time"
+                )
         if state == "due_or_late":
             notes.append(
                 "the inbound is due or past due; the forecast is conditioned on it not having "
@@ -689,8 +696,14 @@ class RiskService:
                 None if rng is None else f"{minutes_to_hhmm(rng[0])} to {minutes_to_hhmm(rng[1])}"
             )
 
+        def calibrated(p: float) -> float:
+            """The recalibrated P(miss) while the inbound has not arrived; raw once it has."""
+            if self.pmiss_calibration is None or state == "arrived":
+                return float(p)
+            return float(np.clip(self.pmiss_calibration.apply(p)[0], 0.0, 1.0))
+
         result = run(float(station.minutes))
-        p_miss = round(float(result.p_miss), 4)
+        p_miss = round(calibrated(result.p_miss), 4)
         repay = self._repay(planned.toc, fare, ticket, result.band_probs)
         gap = planned.sched_dep - inbound_sched
         sens = []
@@ -703,7 +716,7 @@ class RiskService:
                 continue
             r = run(float(m))
             sens.append(SensitivityRow(
-                minutes=m, feasible=True, p_miss=round(float(r.p_miss), 4),
+                minutes=m, feasible=True, p_miss=round(calibrated(r.p_miss), 4),
                 arrival_range_80=arrival(r),
                 expected_payout_gbp=self._repay(planned.toc, fare, ticket, r.band_probs).amount_gbp,
             ))  # fmt: skip
