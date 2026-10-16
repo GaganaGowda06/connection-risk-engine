@@ -203,6 +203,7 @@ def simulate(
     seed: int = DEFAULT_SEED,
     tail: np.ndarray | None = None,
     inbound_floor: float | None = None,
+    round_inbound: bool = True,
 ) -> ConnectionResult:
     """Monte Carlo over the inbound arrival and the outbound trains.
 
@@ -213,6 +214,8 @@ def simulate(
     `inbound_floor` conditions the inbound delay on being at least that many minutes, for a
     forecast made after the scheduled arrival with the train still not in: the uniform draws are
     squeezed into the part of the distribution above the floor.
+
+    `round_inbound=False` keeps the continuous draws, only to show what the rounding changed.
     """
     rng = np.random.default_rng(seed)
     u = rng.random(draws)
@@ -224,7 +227,8 @@ def simulate(
     # Times are whole minutes in the data, so a delay is too. A continuous draw would split every
     # tie between a late inbound and a late outbound as half a miss, where the data counts a tie
     # as made (ready at or before departure). Rounding puts the draws on the data's grid.
-    arrival = inbound_sched_arr + np.rint(inbound_delay_draws(levels, quantiles, u, tail))
+    draws_delay = inbound_delay_draws(levels, quantiles, u, tail)
+    arrival = inbound_sched_arr + (np.rint(draws_delay) if round_inbound else draws_delay)
     trains = [planned, *alternatives]
     dep_actual, arr_actual = [], []
     for train in trains:
@@ -409,3 +413,27 @@ def hhmm_to_minutes(text: str) -> float:
 def minutes_to_hhmm(minutes: float) -> str:
     total = int(round(minutes))
     return f"{(total // 60) % 24:02d}:{total % 60:02d}"
+
+
+def fit_route_tails(
+    quantile_model: object, train: pd.DataFrame, min_rows: int = 30
+) -> tuple[dict[str, TailModel], TailModel]:
+    """One tail model per route and a pooled one, from training rows only.
+
+    `quantile_model` has `distribution(df)`; `train` has route_id, label_delay_min and the
+    columns the model and the lateness groups need.
+    """
+    from rail_risk.lateness import lateness_groups
+
+    _, q = quantile_model.distribution(train)
+    outcome = train["label_delay_min"].to_numpy(dtype=float)
+    groups = lateness_groups(train)
+    pooled = TailModel.fit(outcome, q[:, -1], groups, min_rows)
+    routes = train["route_id"].to_numpy()
+    tails = {
+        str(r): TailModel.fit(
+            outcome[routes == r], q[routes == r, -1], groups[routes == r], min_rows
+        )
+        for r in sorted(set(routes.tolist()))
+    }
+    return tails, pooled

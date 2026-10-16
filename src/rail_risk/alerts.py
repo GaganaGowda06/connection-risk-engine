@@ -22,6 +22,7 @@ class AlertConfig:
     missed_alert: float
     sensitivity_missed_alert: tuple[float, ...]
     grid_step: float
+    tau: float | None = None  # the chosen threshold for the likely-to-miss alert
 
 
 def load_alert_config(path: Path | str = "config/alerts.yaml") -> AlertConfig:
@@ -31,6 +32,7 @@ def load_alert_config(path: Path | str = "config/alerts.yaml") -> AlertConfig:
         missed_alert=float(raw["costs"]["missed_alert"]),
         sensitivity_missed_alert=tuple(float(x) for x in raw.get("sensitivity_missed_alert", ())),
         grid_step=float(raw.get("grid_step", 0.01)),
+        tau=None if "chosen" not in raw else float(raw["chosen"]["tau"]),
     )
     if min(cfg.false_alert, cfg.missed_alert) <= 0 or not 0 < cfg.grid_step < 1:
         raise ValueError("alert costs must be positive and grid_step between 0 and 1")

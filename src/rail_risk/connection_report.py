@@ -23,15 +23,10 @@ def alert_inputs(
 ]:
     """((validation p, y), (test p, y), test p and y per forecast time) for one alert.
 
-    `outcome` is "missed" or "delay15". delay15 is 1 when the realised final arrival was at
-    least 15 minutes late or the passenger was stranded, 0 when it was less, and unknown when no
-    final arrival exists. Pairs with an unknown outcome are left out.
+    `outcome` names the 0/1 column that says whether the event happened. Pairs with an unknown
+    outcome are left out.
     """
-    df = pred[pred["missed"].notna()].copy()
-    df["delay15"] = np.where(
-        df["stranded"], 1.0, np.where(df["final_delay"].notna(), df["final_delay"] >= 15, np.nan)
-    )
-    df = df[df[outcome].notna()]
+    df = pred[pred[outcome].notna()].copy()
 
     def pair(block: str, k: int | None = None) -> tuple[np.ndarray, np.ndarray]:
         sub = df[df["block"] == block]
@@ -71,6 +66,33 @@ def _reliability_rows(sc: dict[str, Any]) -> list[str]:
             f"{b['observed']['ci_high']:.3f}) |"
         )
     return lines
+
+
+def _rounding_verdict(result: dict[str, Any]) -> str:
+    """A plain statement of whether the rounding fix also corrected the bias on validation."""
+    parts = []
+    for name, sc in result["scores"].get("validation", {}).items():
+        r = sc["rounding_check"]["all"]
+        gap_before = r["mean_before"] - r["realised"]
+        gap_after = r["mean_after"] - r["realised"]
+        parts.append(
+            f"at {name} the overestimate of P(miss) on validation went from "
+            f"{100 * gap_before:.1f} to {100 * gap_after:.1f} percentage points"
+        )
+    if not parts:
+        return ""
+    last = result["scores"]["validation"]
+    left = max(
+        r["rounding_check"]["all"]["mean_after"] - r["rounding_check"]["all"]["realised"]
+        for r in last.values()
+    )
+    ending = (
+        "so the fix reduces the bias on validation but does not remove it: the model still "
+        "predicts more misses than happened."
+        if left > 0.005
+        else "so the fix removes the bias on validation."
+    )
+    return "On validation, " + "; ".join(parts) + ", " + ending
 
 
 def _policy_row(label: str, s: dict[str, Any]) -> str:
@@ -134,9 +156,64 @@ def connections_section(result: dict[str, Any]) -> str:
         "",
         "Brackets are 95% bootstrap intervals over service dates. Lower Brier and ECE are "
         "better. The coverage column is the share of pairs whose realised arrival at Euston fell "
-        "inside the predicted 80% range, counting only pairs that reached Euston.",
+        "inside the predicted 80% range, counting only pairs that reached Euston. The table "
+        "above is all pairs. At T-60 no inbound had arrived yet, but at T-15 many had, and for "
+        "those the inbound delay is simply known, so the all-pairs T-15 gain overstates what the "
+        "model adds. The next table keeps only pairs whose inbound had not arrived when the "
+        "forecast was made, which is known at prediction time and not chosen by the outcome.",
         "",
+        "| Forecast time | Pairs (arrived pairs left out) | Realised miss rate | Mean predicted | "
+        "Model Brier | Baseline Brier | Model ECE | Baseline ECE |",
+        "|---|---|---|---|---|---|---|---|",
     ]
+    for name, sc in test.items():
+        w = sc.get("not_yet_arrived")
+        if w is None:
+            lines.append(f"| {name} | too few pairs | n/a | n/a | n/a | n/a | n/a | n/a |")
+            continue
+        lines.append(
+            f"| {name} | {w['pairs']} ({w['excluded_arrived']}) | {_pct(w['miss_rate'], 1)} | "
+            f"{_pct(w['mean_predicted_miss'], 1)} | {_ci(w['model']['brier'], 4)} | "
+            f"{_ci(w['baseline']['brier'], 4)} | {_ci(w['model']['ece'], 4)} | "
+            f"{_ci(w['baseline']['ece'], 4)} |"
+        )
+    lines += [""]
+    if any("rounding_check" in sc for blk in result["scores"].values() for sc in blk.values()):
+        lines += [
+            "### Check of the whole-minute rounding in the simulator",
+            "",
+            "The simulator rounds each inbound delay draw to a whole minute, because the data is "
+            "in whole minutes and a tie between being ready and the train leaving counts as a "
+            "catch. This was first spotted when the first backtest printed validation and test "
+            "scores together: mean P(miss) was 9.2% against 6.0% realised on test at T-60, and "
+            "9.7% against 6.7% on validation. The cause was then diagnosed on pooled validation "
+            "and test pairs, so test pairs did inform the change, although it has no fitted "
+            "parameter. The table shows the effect on validation pairs, which the threshold "
+            "choice also uses, and on test pairs for completeness.",
+            "",
+            "| Block and forecast time | Pairs | Realised miss rate | Mean P(miss) before | "
+            "Mean P(miss) after | Brier before | Brier after |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for blk in ("validation", "test"):
+            for name, sc in result["scores"].get(blk, {}).items():
+                for label, key in (
+                    ("all pairs", "all"),
+                    ("tightest gap, 10 to 14 min", "tightest_gap_bucket"),
+                ):
+                    r = sc["rounding_check"][key]
+                    if r is None:
+                        continue
+                    lines.append(
+                        f"| {blk}, {name}, {label} | {r['pairs']} | {_pct(r['realised'], 1)} | "
+                        f"{_pct(r['mean_before'], 1)} | {_pct(r['mean_after'], 1)} | "
+                        f"{r['brier_before']:.4f} | {r['brier_after']:.4f} |"
+                    )
+        lines += [
+            "",
+            _rounding_verdict(result),
+            "",
+        ]
     for name, sc in test.items():
         states = ", ".join(
             f"{st.replace('_', ' ')} {v['pairs']} pairs (miss rate {_pct(v['miss_rate'], 1)}, "
@@ -168,10 +245,6 @@ def connections_section(result: dict[str, Any]) -> str:
         ]
         titles = {
             "likely_to_miss": ("tau", "Likely to miss your connection, on P(miss)"),
-            "may_be_owed_delay_repay": (
-                "tau2",
-                "You may be owed Delay Repay, on P(final arrival at least 15 minutes late)",
-            ),
         }
         for key, a in alerts.items():
             sym, title = titles[key]
@@ -231,8 +304,10 @@ def connections_section(result: dict[str, Any]) -> str:
         "the first weeks of autumn, with no winter or storm season. Only two routes are in the "
         "model, and the connection test uses one hub and one pair of routes. The test block is "
         f"{days['test']} days, so the intervals are wide, and a small number of pairs drives the "
-        "tails of every score. The Delay Repay alert counts a stranded passenger as at least 15 "
-        "minutes late, which is an assumption. The costs behind both thresholds are assumed.",
+        "tails of every score. The costs behind the threshold are assumed. There is no Delay "
+        "Repay alert: an earlier forecast alert for it lost to always alerting on test when the "
+        "late-arrival rate moved from 13.4% to 21.7%, and eligibility is known for certain once "
+        "the train has arrived, so expected Delay Repay is shown as information only.",
         "",
         END,
     ]

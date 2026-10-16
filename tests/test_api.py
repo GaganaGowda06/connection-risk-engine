@@ -8,14 +8,11 @@ from rail_risk.api.app import create_app
 from rail_risk.api.schemas import RiskResponse
 from rail_risk.api.service import RiskService
 from rail_risk.config import load_routes
-from rail_risk.live import FeatureService
 from rail_risk.repay import DelayRepayRules, load_rules
 from world import (
     BANDS,
     RID,
-    build_bundle,
     events_for,
-    history_labels,
     make_store,
     ts,
 )
@@ -23,16 +20,6 @@ from world import (
 ROUTE_DEST = {"bhm-eus": "EUS", "ast-bhm": "BHM", "bhm-man": "MAN"}
 NOW = ts("10:45").to_pydatetime()  # 45 minutes before the scheduled 11:30 arrival
 RANGE = re.compile(r"^\d\d:\d\d to \d\d:\d\d$")
-
-
-@pytest.fixture(scope="module")
-def bundle_pair():
-    return build_bundle()
-
-
-@pytest.fixture(scope="module")
-def features(spark):
-    return FeatureService.from_labels(spark, ROUTE_DEST, history_labels(spark))
 
 
 def make_service(

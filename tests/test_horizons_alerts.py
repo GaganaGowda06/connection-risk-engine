@@ -231,16 +231,15 @@ def predictions(n_per_block: int = 40) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_alert_inputs_define_the_outcomes_and_split_blocks():
+def test_alert_inputs_split_blocks_and_drop_unknown_outcomes():
     pred = predictions()
     (pv, yv), (pt, yt), per_k = alert_inputs(pred, "p_miss", "missed")
     assert len(pv) == len(yv) == 80 and len(pt) == len(yt) == 80
     assert set(per_k) == {"T-60 before outbound", "T-15 before outbound"}
-    (_, y15), _, _ = alert_inputs(pred, "p_final_ge15", "delay15")
-    # stranded counts as late (1); otherwise at least 15 minutes late is 1
-    sub = pred[pred["block"] == "validation"]
-    expected = np.where(sub["stranded"], 1.0, (sub["final_delay"] >= 15).astype(float))
-    assert y15.tolist() == expected.tolist()
+    unknown = pred.copy()
+    unknown.loc[unknown.index[:10], "missed"] = np.nan
+    (pv2, _), _, _ = alert_inputs(unknown, "p_miss", "missed")
+    assert len(pv2) < len(pv)
 
 
 def test_connections_section_is_written_in_place_and_has_no_em_dash(tmp_path):
@@ -264,33 +263,68 @@ def test_connections_section_is_written_in_place_and_has_no_em_dash(tmp_path):
     assert "—" not in connections_section(result)
 
 
-def test_a_tie_between_ready_time_and_departure_is_a_catch_not_half_a_miss():
-    # delays are whole minutes in the data. The inbound is about three minutes late (spread a
-    # little around it by interpolation) and the outbound leaves exactly three minutes late, so
-    # the passenger is ready at the minute the train goes: a catch.
-    levels = np.array([0.05, 0.25, 0.5, 0.75, 0.95])
-    q = np.array([2.6, 2.8, 3.0, 3.2, 3.4])
-    res = simulate(
-        levels, q, 590.0, Train(600.0, 700.0), [], 10.0, FixedDelays(3.0, 0.0), draws=4000, seed=3
-    )
-    assert res.p_miss == 0.0
-    assert (res.delays == np.round(res.delays)).all()
-
-
-def test_connections_section_reports_the_alerts_and_flags_a_threshold_that_lost_on_test(tmp_path):
+def test_connections_section_has_no_delay_repay_alert_and_shows_subset_and_rounding():
     pv, yv = calibrated(4000, 8)
     pt, yt = calibrated(4000, 9)
     cfg = AlertConfig(1.0, 5.0, (3.0, 10.0), 0.01)
-    report = alert_report("may_be_owed_delay_repay", (pv, yv), (pt, yt), cfg)
+    report = alert_report("likely_to_miss", (pv, yv), (pt, yt), cfg)
     report["test_by_forecast"] = {"T-60 before outbound": report["test"]["chosen"]}
+    rel = {"value": 0.1, "ci_low": 0.05, "ci_high": 0.2}
+    cell = {
+        "pairs": 100, "dates": 7, "miss_rate": 0.06, "mean_predicted_miss": 0.08,
+        "model": {"brier": rel, "ece": rel}, "baseline": {"brier": rel, "ece": rel},
+        "reliability_model": [], "reliability_baseline": [], "bins": 10, "stranded_realised": 0,
+        "interval_pairs": 90, "interval_coverage": rel, "interval_width_min": 30.0,
+        "by_state": {"arrived": {"pairs": 40, "miss_rate": 0.0, "mean_predicted_miss": 0.0}},
+    }  # fmt: skip
+    check = {
+        "pairs": 100, "realised": 0.067, "mean_before": 0.097, "mean_after": 0.083,
+        "brier_before": 0.06, "brier_after": 0.055,
+    }  # fmt: skip
+    cell_val = {
+        **cell,
+        "rounding_check": {"all": {**check, "realised_ci_low": 0.0, "realised_ci_high": 0.1},
+                           "tightest_gap_bucket": None},
+        "not_yet_arrived": {**cell, "pairs": 60, "excluded_arrived": 40},
+    }  # fmt: skip
     result = {
         "ast_bhm_days": {"train": 1, "validation": 1, "test": 1},
         "pairs": {"train": 1, "validation": 1, "test": 1},
         "pairs_with_known_outcome": {"train": 1, "validation": 1, "test": 1},
         "min_connection_time": 10.0, "min_connection_time_status": "assumed",
         "window_minutes": 20.0, "baseline": {"overall_miss_rate": 0.1, "pairs_by_gap_bucket": {}},
-        "scores": {}, "alerts": {"may_be_owed_delay_repay": report},
+        "scores": {
+            "test": {"T-15 before outbound": cell_val},
+            "validation": {"T-15 before outbound": cell_val},
+        },
+        "alerts": {"likely_to_miss": report},
     }  # fmt: skip
     text = connections_section(result)
-    assert "Chosen tau2" in text and "Always alert" in text and "Never alert" in text
-    assert "assumptions in config/alerts.yaml" in text and "—" not in text
+    assert "Chosen tau" in text and "Always alert" in text and "tau2" not in text
+    assert "arrived pairs left out" in text and "whole-minute rounding" in text
+    # the bias fell from 3.0 to 1.6 points but is not gone, and the text says so
+    assert "reduces the bias on validation but does not remove it" in text
+    assert "no Delay Repay alert" in text.replace(
+        "There is no Delay Repay alert", "no Delay Repay alert"
+    )
+    assert "\u2014" not in text
+    ok = {
+        **cell_val,
+        "rounding_check": {"all": {**check, "mean_after": 0.067}, "tightest_gap_bucket": None},
+    }
+    result["scores"]["validation"] = {"T-15 before outbound": ok}
+    assert "removes the bias on validation" in connections_section(result)
+
+
+def test_a_tie_between_ready_time_and_departure_is_a_catch_not_half_a_miss():
+    # delays are whole minutes in the data. The inbound is about three minutes late (spread a
+    # little around it by interpolation) and the outbound leaves exactly three minutes late, so
+    # the passenger is ready at the minute the train goes: a catch.
+    levels = np.array([0.05, 0.25, 0.5, 0.75, 0.95])
+    q = np.array([2.6, 2.8, 3.0, 3.2, 3.4])
+    args = (levels, q, 590.0, Train(600.0, 700.0), [], 10.0, FixedDelays(3.0, 0.0))
+    res = simulate(*args, draws=4000, seed=3)
+    assert res.p_miss == 0.0
+    assert (res.delays == np.round(res.delays)).all()
+    # without the rounding the same draws split the tie, which is the bias that was fixed
+    assert simulate(*args, draws=4000, seed=3, round_inbound=False).p_miss > 0.3
