@@ -51,6 +51,22 @@ The Birmingham to Euston Brier gain is clearest at T-15. At T-120 and T-60 the p
 
 The 80% arrival range at Euston covered 0.874 (0.823 to 0.920) of the pairs that reached Euston at T-60, which is above the 0.80 it aims for, so the range is wider than it needs to be. The alert fires at a P(miss) of 0.22. That level comes from assumed costs of 1 for a needless warning and 5 for a missed one, so it is a placeholder for product input. On test it caught 58% of missed connections with 26% of alerts correct, and cost 0.224 per pair against 0.940 for always alerting and 0.301 for never alerting.
 
+## Live evaluation
+
+The frozen champion (MLflow run `4c88d55b`, registry version 2) was replayed on service dates 2026-10-16 to 2026-10-22 of captured Darwin data. The service did not log predictions that week, so each prediction was rebuilt afterwards from only the Darwin messages stamped at or before the prediction time, through the API's own feature and prediction code. Nothing was retrained, recalibrated or re-thresholded. Details and every number are in `reports/live_eval.md` and `reports/live_eval.json` (`uv run rail-risk live-eval --start 2026-10-16 --end 2026-10-22 --expect-run-id 4c88d55bbbed49018e3ce05e8199ce5b`).
+
+- **The capture lost 88.1 of the 168 hours** in 78 gaps of more than 5 minutes, 74 of them 20 minutes or longer. Services whose window from prediction time to arrival overlaps a gap were dropped: at T-120, 301 of 363 Birmingham to Euston and 464 of 561 Aston to Birmingham services. That leaves 119 scored services at T-120, 143 at T-60 and 234 at T-15, and 46% to 85% of them fall on 2026-10-16, the day with the fewest gaps.
+- **Darwin and HSP agree on the actual times.** On 2026-10-16, 118 of 118 destination arrivals recorded by both feeds were identical to the minute. HSP also had 26 arrivals that the capture missed.
+- **Where the live numbers can be compared, they are similar to the test block, not better.** Only cells with five or more service dates get an interval, and in those the live and test intervals overlap, except two. The Birmingham to Euston 80% range was wider at T-15 (17.6 minutes against 11.7), and the P(miss) ECE at T-15 for Aston trains not yet arrived was 0.174 against 0.081.
+
+| Route | Forecast | Live MAE | Test MAE | Live minus validation bar | Live 80% coverage |
+|---|---|---|---|---|---|
+| Birmingham to Euston | T-60 | 5.38 (4.14 to 6.46) | 5.44 | -0.34 (-1.45 to +0.55) | 0.79 |
+| Birmingham to Euston | T-15 | 3.91 (2.77 to 5.49) | 3.54 | -0.08 (-0.51 to +1.46) | 0.82 |
+| Aston to Birmingham | T-15 | 2.34 (1.67 to 2.68) | 1.93 | -0.47 (-0.64 to -0.08) | 0.78 |
+
+For connections, 190 of 533 feasible pairs had a known outcome. At T-60 (71 pairs) the model's P(miss) Brier was 0.1106 against 0.1115 for the gap-bucket baseline, and at T-15 with the Aston train not yet arrived (52 pairs) 0.2228 against 0.2340. The alert at 0.22 had precision 0.36 and recall 0.50 at T-60, and 0.35 and 0.50 at T-15. These are few pairs from few days, so none of this shows that the model is better or worse than on the test block. The other cells have too few service dates for an interval and are listed in the report with the direction of the difference only.
+
 ## What did not work
 
 - **A Delay Repay alert.** I first built a forecast alert for "you may be owed Delay Repay". On test it cost more than alerting everyone (0.814 per pair against 0.783) because the share of journeys 15 or more minutes late jumped from 13.4% in validation to 21.7% in test. Eligibility is known for certain once the train arrives, so I removed the alert. Expected Delay Repay in pounds stays as information only.

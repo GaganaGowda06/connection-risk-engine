@@ -721,6 +721,39 @@ def _evaluate_baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def _live_eval(args: argparse.Namespace) -> int:
+    from rail_risk import live_eval
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        if args.end < args.start:
+            raise ValueError("--end must not be before --start")
+    except (ValueError, OSError) as exc:
+        log.error("live_eval_invalid", error=str(exc), **_hint(exc))
+        return 1
+    try:
+        result = live_eval.run_live_eval(
+            settings,
+            start=args.start,
+            end=args.end,
+            split_file=args.split_file,
+            hsp_check_dir=args.hsp_check_dir,
+            hsp_check_day=args.hsp_check_date,
+            expect_run_id=args.expect_run_id,
+            lookback_min=args.lookback,
+            log=log,
+        )
+    except (ValueError, OSError, KeyError) as exc:
+        log.error("live_eval_failed", error=repr(exc), **_hint(exc))
+        return 1
+    md, js = live_eval.write_reports(result, args.out)
+    log.info("live_eval_written", markdown=str(md), json=str(js), seconds=result["seconds"])
+    return 0
+
+
 def _status() -> int:
     from rail_risk.status import darwin_status, hsp_status
 
@@ -812,6 +845,19 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--alerts-file", type=Path, default=Path("config/alerts.yaml"))
     bt.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
     bt.add_argument("--pmiss-file", type=Path, default=Path("config/pmiss_calibration.json"))
+    le = sub.add_parser(
+        "live-eval", help="point-in-time replay of the frozen champion on captured Darwin data"
+    )
+    le.add_argument("--start", type=date.fromisoformat, required=True)
+    le.add_argument("--end", type=date.fromisoformat, required=True)
+    le.add_argument("--expect-run-id", default=None, help="fail unless the champion is this run")
+    le.add_argument(
+        "--hsp-check-dir", type=Path, default=None, help="data dir holding one fetched HSP day"
+    )
+    le.add_argument("--hsp-check-date", type=date.fromisoformat, default=None)
+    le.add_argument("--lookback", type=int, default=60, help="minutes before T for the check")
+    le.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
+    le.add_argument("--out", type=Path, default=Path("reports"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -841,6 +887,8 @@ def main(argv: list[str] | None = None) -> int:
         return _evaluate_baselines(args)
     if args.command == "rebuild-hsp":
         return _rebuild_hsp(args)
+    if args.command == "live-eval":
+        return _live_eval(args)
     if args.command == "status":
         return _status()
     return 2  # pragma: no cover
