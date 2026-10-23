@@ -19,3 +19,4 @@ infra/*.tfvars
 infra/*.tfplan
 infra/crash.log
 reports/baselines/*/baselines.json
+/capture.log
