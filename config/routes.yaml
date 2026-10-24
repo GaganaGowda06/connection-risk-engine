@@ -12,3 +12,15 @@ routes:
     origin: AST
     destination: EUS
     via_hub: BHM
+  - id: bhm-lds
+    origin: BHM
+    destination: LDS
+  - id: bhm-bri
+    origin: BHM
+    destination: BRI
+  - id: bhm-liv
+    origin: BHM
+    destination: LIV
+  - id: bhm-glc
+    origin: BHM
+    destination: GLC

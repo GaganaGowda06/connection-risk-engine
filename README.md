@@ -67,6 +67,16 @@ The frozen champion (MLflow run `4c88d55b`, registry version 2) was replayed on 
 
 For connections, 190 of 533 feasible pairs had a known outcome. At T-60 (71 pairs) the model's P(miss) Brier was 0.1106 against 0.1115 for the gap-bucket baseline, and at T-15 with the Aston train not yet arrived (52 pairs) 0.2228 against 0.2340. The alert at 0.22 had precision 0.36 and recall 0.50 at T-60, and 0.35 and 0.50 at T-15. These are few pairs from few days, so none of this shows that the model is better or worse than on the test block. The other cells have too few service dates for an interval and are listed in the report with the direction of the difference only.
 
+## Stress test
+
+The same frozen champion was scored on a gap-free week of its own routes (HSP, 2026-10-16 to 2026-10-22) and on five Birmingham New Street routes it had never seen (Manchester Piccadilly, Leeds, Bristol Temple Meads, Liverpool Lime Street and Glasgow Central, 2026-10-01 to 2026-10-22). Nothing was retrained or recalibrated. Every number, with 95% intervals that resample service dates, is in `reports/stress_eval.md` and `reports/stress_eval.json` (`uv run rail-risk stress-eval`).
+
+- **Own routes, gap-free week.** At 15 minutes to arrival the champion's MAE was 3.52 minutes on Birmingham to Euston and 1.79 on Aston to Birmingham, with 80% coverage of 0.84 and 0.79. The live replay of the same dates had higher MAE in all six route and horizon cells.
+- **New routes.** The champion beat the historical route-hour baseline in 14 of 15 route and horizon cells, but was worse than persistence at 15 and 60 minutes on Bristol and Glasgow (for example +0.97 minutes at 15 minutes on Bristol, interval +0.54 to +1.37). Pooled 80% coverage ranged from 0.56 on Liverpool to 0.81 on Manchester.
+- **Cold start.** New route rows with fewer than 7 prior fetched days were covered 0.65 of the time, against 0.76 with 7 or more. These are different days, so this is a pattern and not a controlled comparison.
+
+The report ends with ranked changes to consider. None is implemented.
+
 ## What did not work
 
 - **A Delay Repay alert.** I first built a forecast alert for "you may be owed Delay Repay". On test it cost more than alerting everyone (0.814 per pair against 0.783) because the share of journeys 15 or more minutes late jumped from 13.4% in validation to 21.7% in test. Eligibility is known for certain once the train arrives, so I removed the alert. Expected Delay Repay in pounds stays as information only.
