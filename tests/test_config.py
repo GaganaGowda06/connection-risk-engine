@@ -65,7 +65,19 @@ def test_shipped_routes_load():
         "bhm-bri",
         "bhm-liv",
         "bhm-glc",
+        "lst-cbg",
+        "myb-bmo",
+        "man-shf",
+        "glq-abd",
+        "bri-cdf",
+        "bri-wsm",
     ]
+
+
+def test_held_out_routes_are_flagged():
+    routes = load_routes(Path(__file__).parent.parent / "config" / "routes.yaml").routes
+    held = {r.id for r in routes if r.held_out}
+    assert held == {"bhm-liv", "lst-cbg", "myb-bmo", "man-shf", "glq-abd", "bri-cdf", "bri-wsm"}
 
 
 def test_secrets_masked_in_repr():

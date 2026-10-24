@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 1 (data foundation)**, sub-step 1.1 done (probe and mirror).
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 1 (data foundation)**, sub-steps 1.1 and 1.2 done, 1.3 open.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -34,7 +34,12 @@ Held-out routes never enter training, tuning or calibration folds, and no featur
 Scope: mirror the archive (1.1, in progress), parse Darwin XML v18 into per-stop tables with one set of cleaning checks and no route-specific code, parse MSN and TSI for minimum connection times, pick the 25 routes, load timetable and planned-closure information.
 Split: all dates from 2026-10-17 to 2026-10-23 are marked split=oot_week in the clean tables and excluded from every fit; February 2026 is the winter hold-out.
 Done means: at least 20 routes, 5 operators, short, medium and long journeys and a major hub in the clean tables (test 1); every route passes the same checks for types, timezones, station matching, and planned closure versus missing data (test 7); every source and licence is recorded and no number is unsourced (test 8).
-Stage 1.1 result: see DECISIONS.md 2026-10-24.
+Progress (details and evidence in DECISIONS.md, 2026-10-24):
+- 1.1 done: archive probe and mirror.
+- 1.2 done: mirror of the whole window (4,342 files) plus six boundary and clock-change days, manifest and integrity check; network-wide streaming extraction to Parquet (schedules, schedule_points, stop_updates, stop_actuals, associations, deactivations) with the split column; TIPLOC to CRS from open files; one pandera cleaning module run on 187 service dates; coverage; HSP spot-check (730 of 730 arrivals and departures exact on 50 trains of three held-out routes); weather source recommendation (Open-Meteo, not ingested).
+- 1.3 to do: name the other 11 routes of the 25 (config/routes.yaml is the single source; 14 are in it, 7 held out), parse MSN and TSI for minimum connection times, explain the sequence flags on bri-cdf, bri-wsm, bhm-glc and man-shf, fetch the rest of 2026-10-24 after the day ends, and load planned-closure and engineering information if a source is found.
+Weather: Open-Meteo (ERA5) is the recommended history source (free for development, paid key before commercial use, newest 5 days null, modelled not observed); not ingested until Stage 3 needs it.
+Extract layout: data/interim/pport/<table>/service_date=D/<hour file>.parquet, read model data only through rail_risk.ingest.pport_extract.train_pool_table (train_pool rows only).
 
 ### Oracle capture host (GOAL test 6b)
 Scope: provision Oracle Cloud Always Free (2 OCPU, 12 GB, resident memory above about 2.4 GB to avoid idle reclaim), run the Darwin capture there, and stop depending on the laptop.

@@ -1,0 +1,54 @@
+{
+ "day": "2026-10-13",
+ "trains": 50,
+ "per_route": {
+  "lst-cbg": 17,
+  "man-shf": 17,
+  "bri-cdf": 16
+ },
+ "arrival": {
+  "hsp_stops": 730,
+  "found_in_archive": 730,
+  "exact": 730,
+  "within_1_min": 730,
+  "over_1_min": 0,
+  "mean": 0.0,
+  "max_abs": 0.0,
+  "counts": {
+   "0.0": 730
+  }
+ },
+ "departure": {
+  "hsp_stops": 730,
+  "found_in_archive": 730,
+  "exact": 730,
+  "within_1_min": 730,
+  "over_1_min": 0,
+  "mean": 0.0,
+  "max_abs": 0.0,
+  "counts": {
+   "0.0": 730
+  }
+ },
+ "destination_arrival_by_route": [
+  {
+   "route": "lst-cbg",
+   "trains": 17,
+   "exact": 17,
+   "max_abs": 0.0
+  },
+  {
+   "route": "man-shf",
+   "trains": 17,
+   "exact": 17,
+   "max_abs": 0.0
+  },
+  {
+   "route": "bri-cdf",
+   "trains": 16,
+   "exact": 16,
+   "max_abs": 0.0
+  }
+ ],
+ "hsp_arrivals_not_in_archive_sample": []
+}

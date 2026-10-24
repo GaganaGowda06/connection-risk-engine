@@ -292,12 +292,12 @@ def test_a_blocked_cached_path_hits_the_budget_and_returns_504(
         raise AssertionError("released after the request timed out")
 
     monkeypatch.setattr(service, "_features_for", blocked)
-    try:
-        with client_for(service, budget_seconds=0.05) as c:
+    with client_for(service, budget_seconds=0.05) as c:
+        try:
             r = post(c)
             assert r.status_code == 504 and "no answer" in r.json()["detail"]
-    finally:
-        release.set()
+        finally:
+            release.set()  # leaving the client waits for the worker thread, so release it first
 
 
 def test_logs_and_responses_carry_no_secrets(tmp_path, features, bundle_pair, monkeypatch):

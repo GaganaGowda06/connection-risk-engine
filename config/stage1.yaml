@@ -1,0 +1,11 @@
+# Stage 1 data foundation: windows, splits and the days the extract must also cover.
+# Dates are UK service dates (ssd). oot_week is never trained, tuned or calibrated on.
+windows:
+  - {start: 2025-12-01, end: 2026-02-28}
+  - {start: 2026-07-25, end: 2026-10-23}
+boundary_days: [2025-11-30, 2026-03-01, 2026-07-24, 2026-10-24]
+clock_change_days: [2025-10-26, 2026-03-29]
+splits:
+  oot_week: {start: 2026-10-17, end: 2026-10-23}
+  winter_test: {start: 2026-02-01, end: 2026-02-28}
+default_split: train_pool

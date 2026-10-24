@@ -1,0 +1,56 @@
+{
+ "files": 4472,
+ "messages": 359013438,
+ "rows_written_by_parser": {
+  "stop_updates": 1783787656,
+  "deactivations": 6225510,
+  "schedules": 20126912,
+  "schedule_points": 449671143,
+  "associations": 7896527
+ },
+ "parquet_bytes": 24549082283,
+ "cpu_hours": 15.07,
+ "peak_rss_mb_per_file_process": 840.8,
+ "parse_errors": 0,
+ "files_not_ok": [],
+ "rows_by_split": {
+  "schedules": {
+   "train_pool": 16345163,
+   "winter_test": 2946200,
+   "oot_week": 835549
+  },
+  "schedule_points": {
+   "train_pool": 366528828,
+   "winter_test": 64297004,
+   "oot_week": 18845311
+  },
+  "stop_updates": {
+   "train_pool": 1453046236,
+   "winter_test": 257856476,
+   "oot_week": 72884944
+  },
+  "associations": {
+   "train_pool": 6415613,
+   "winter_test": 1132536,
+   "oot_week": 348378
+  },
+  "deactivations": {
+   "train_pool": 5031160,
+   "winter_test": 963591,
+   "oot_week": 230759
+  },
+  "stop_actuals": {
+   "train_pool": 100188953,
+   "winter_test": 19095811,
+   "oot_week": 4586454
+  }
+ },
+ "archive_gaps": [
+  "2026-10-20 hour 10",
+  "2026-10-20 hour 11"
+ ],
+ "partial_days": [
+  "2026-10-24 (hours 00 to 10 only)"
+ ],
+ "note_no_file": "2026-03-29 hour 01 does not exist (spring clock change)"
+}

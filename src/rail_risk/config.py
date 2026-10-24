@@ -17,6 +17,7 @@ class Route(BaseModel):
     origin: str
     destination: str
     via_hub: str | None = None
+    held_out: bool = False
 
     @field_validator("id")
     @classmethod
