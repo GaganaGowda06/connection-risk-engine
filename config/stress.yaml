@@ -1,0 +1,16 @@
+# Stress test of the frozen champion: no retraining, recalibration or threshold change.
+# own routes are the routes the champion was trained on, scored on a week it never saw.
+# new routes are hub routes from Birmingham New Street it has never seen, scored over the window.
+# Each new route's 28 day history features use only dates inside its window (fetched in this step).
+own:
+  routes: [bhm-eus, ast-bhm]
+  start: 2026-10-16
+  end: 2026-10-22
+new:
+  routes: [bhm-man, bhm-lds, bhm-bri, bhm-liv, bhm-glc]
+  start: 2026-10-01
+  end: 2026-10-22
+horizons: [15, 60, 120]
+# fewer prior fetched days than this in a new route's window flags the row
+min_prior_days: 7
+leakage_rows: 50

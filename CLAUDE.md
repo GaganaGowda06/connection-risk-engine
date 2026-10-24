@@ -26,6 +26,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
   - Images: `docker build --target api -t rail-risk-api .` and `--target ui`. The API image carries a jlinked Java 17 runtime for Spark; no secret is ever in an image.
 - Terraform (plan only, no AWS account): `cd infra && terraform init -backend=false && terraform validate`; offline plan steps are in infra/README.md
 - Live eval: `uv run rail-risk live-eval --start D --end D --expect-run-id RUN [--hsp-check-dir DIR --hsp-check-date D]` (point-in-time replay of the frozen champion on captured Darwin data, writes reports/live_eval.json and live_eval.md; fetch an HSP check day with `RAIL_DATA_DIR=DIR uv run rail-risk ingest-hsp ...` into a scratch dir, never into data/, or the training split shifts)
+- Stress test: `uv run rail-risk stress-eval [--skip-build]` (frozen champion on the gap-free week of its own routes and on the five hub routes of config/stress.yaml; writes reports/stress_eval.json and .md; fetch new routes first with scripts/run_backfill.sh)
 - Drift: `uv run rail-risk drift` (PSI of live Darwin serving features against training; writes reports/drift.json and drift.md; 0.1 watch, 0.25 act)
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)

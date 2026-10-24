@@ -754,6 +754,28 @@ def _live_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stress_eval(args: argparse.Namespace) -> int:
+    from rail_risk import stress_eval
+
+    log = get_logger()
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        log = get_logger()
+        cfg = stress_eval.load_stress_config(args.config)
+    except (ValueError, OSError, KeyError) as exc:
+        log.error("stress_eval_invalid", error=str(exc))
+        return 1
+    try:
+        result = stress_eval.run_stress_eval(settings, cfg, skip_build=args.skip_build, log=log)
+    except (ValueError, OSError, KeyError) as exc:
+        log.error("stress_eval_failed", error=repr(exc), **_hint(exc))
+        return 1
+    md, js = stress_eval.write_reports(result, stress_eval.findings(result), args.out)
+    log.info("stress_eval_written", markdown=str(md), json=str(js), seconds=result["seconds"])
+    return 0
+
+
 def _status() -> int:
     from rail_risk.status import darwin_status, hsp_status
 
@@ -858,6 +880,12 @@ def main(argv: list[str] | None = None) -> int:
     le.add_argument("--lookback", type=int, default=60, help="minutes before T for the check")
     le.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     le.add_argument("--out", type=Path, default=Path("reports"))
+    se = sub.add_parser(
+        "stress-eval", help="score the frozen champion on a gap-free week and unseen routes"
+    )
+    se.add_argument("--config", type=Path, default=Path("config/stress.yaml"))
+    se.add_argument("--skip-build", action="store_true", help="reuse data/stress/snapshots.parquet")
+    se.add_argument("--out", type=Path, default=Path("reports"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
@@ -889,6 +917,8 @@ def main(argv: list[str] | None = None) -> int:
         return _rebuild_hsp(args)
     if args.command == "live-eval":
         return _live_eval(args)
+    if args.command == "stress-eval":
+        return _stress_eval(args)
     if args.command == "status":
         return _status()
     return 2  # pragma: no cover
