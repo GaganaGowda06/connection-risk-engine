@@ -13,7 +13,7 @@ All tests run on routes the model never trained on (leave-routes-out), unless st
 3. Ranges: 80% arrival ranges cover 0.78 to 0.82 on held-out routes overall, with no held-out route below 0.70.
 4. Late risk: P(delay at least 15 minutes) beats the historical baseline on Brier, with ECE at or below 0.05.
 5. Connections: P(miss) beats the gap-bucket baseline on Brier at two or more hubs, with ECE at or below 0.05 on pairs whose inbound has not yet arrived.
-6a. Out of time: the most recent archive week (2026-10-17 to 2026-10-23) is never trained, tuned or calibrated on, and is replayed through the service in Stage 6.
+6a. Out of time: the most recent archive week (2026-10-17 to 2026-10-23) is never trained, tuned or calibrated on, and is replayed through the service in Stage 6. Metrics on that week fall within the 95% CIs of tests 2 to 4.
 6b. Live pipeline: our own capture runs on an always-on host with under 1% loss. Seven days is the target; if the project ends sooner, the README states the actual days and loss honestly.
 7. Data quality: every route passes the same cleaning checks (types, timezones, station matching, planned closures told apart from missing data) with no route-specific code.
 8. Trust: every number shown traces to a model output or a verified rule; unverified Delay Repay rules are never priced.
