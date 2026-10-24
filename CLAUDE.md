@@ -34,6 +34,7 @@ Routes: BHM to EUS, BHM to MAN, AST to EUS via BHM (see config/routes.yaml).
 - Drift: `uv run rail-risk drift` (PSI of live Darwin serving features against training; writes reports/drift.json and drift.md; 0.1 watch, 0.25 act)
 - Delay Repay: `src/rail_risk/repay.py` reads `config/delay_repay.yaml`; unverified TOCs raise, fares are inputs
 - Darwin archive: `nohup ./scripts/run_archive_mirror.sh > /dev/null 2>&1 &` mirrors the community archive to data/raw/darwin_archive/ (resumable, one request at a time, stops under 60 GB free; log logs/archive_mirror.log, manifest data/interim/archive_manifest.sqlite). Probe: `uv run python scripts/probe_archive.py DATE [--hour H]`
+- Stage 1 extract: `uv run python scripts/run_pport_extract.py --start D --end D` (or `--window`) parses the mirrored archive hours to data/interim/pport/ (Parquet by service_date, never decompressed to disk, resumable); then `scripts/run_stage1_cleaning.py` (reports/stage1_*.csv), `scripts/write_archive_manifest.py` (data/manifests/darwin_archive.csv, committed), `scripts/hsp_spot_check.py` (fetch HSP into a scratch RAIL_DATA_DIR first). `scripts/mirror_archive.py --extra` mirrors the boundary and clock-change days.
 - Parse Darwin: `uv run rail-risk parse-darwin [--date YYYY-MM-DD]` (closed hourly files, once each)
 
 ## Committing

@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 data/*
 !data/.gitkeep
+!data/manifests/
 mlruns/
 .DS_Store
 logs/
@@ -20,3 +21,4 @@ infra/*.tfplan
 infra/crash.log
 reports/baselines/*/baselines.json
 /capture.log
+reports/stage1_cleaning_by_day.csv

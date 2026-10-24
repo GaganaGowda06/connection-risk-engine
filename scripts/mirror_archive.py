@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 
 from rail_risk.archive import Manifest, date_range_newest_first, mirror
+from rail_risk.ingest.darwin_pport import load_stage1_config
 
 ROOT = Path("data/raw/darwin_archive")
 MANIFEST = Path("data/interim/archive_manifest.sqlite")
@@ -27,12 +28,23 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pause", type=float, default=2.0)
     ap.add_argument("--min-free-gb", type=float, default=60.0)
+    ap.add_argument(
+        "--extra",
+        action="store_true",
+        help="only the boundary and clock-change days of config/stage1.yaml",
+    )
     args = ap.parse_args()
+    windows = WINDOWS
+    if args.extra:
+        cfg = load_stage1_config()
+        windows = [
+            (d, d) for d in sorted({*cfg.boundary_days, *cfg.clock_change_days}, reverse=True)
+        ]
     manifest = Manifest(MANIFEST)
-    stamp(f"mirror start windows={WINDOWS}")
+    stamp(f"mirror start windows={windows}")
     headers = {"User-Agent": "rail-risk-mirror (research, one request at a time)"}
     with httpx.Client(timeout=180, follow_redirects=True, headers=headers) as client:
-        for start, end in WINDOWS:
+        for start, end in windows:
             res = mirror(
                 date_range_newest_first(start, end),
                 ROOT,

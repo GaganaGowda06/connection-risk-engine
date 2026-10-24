@@ -21,6 +21,15 @@ routes:
   - id: bhm-liv
     origin: BHM
     destination: LIV
+    held_out: true
   - id: bhm-glc
     origin: BHM
     destination: GLC
+  # Held out entirely from training, tuning and calibration (PLAN.md, Stage 0). bhm-liv above is
+  # the same, flagged here too.
+  - {id: lst-cbg, origin: LST, destination: CBG, held_out: true}
+  - {id: myb-bmo, origin: MYB, destination: BMO, held_out: true}
+  - {id: man-shf, origin: MAN, destination: SHF, held_out: true}
+  - {id: glq-abd, origin: GLQ, destination: ABD, held_out: true}
+  - {id: bri-cdf, origin: BRI, destination: CDF, held_out: true}
+  - {id: bri-wsm, origin: BRI, destination: WSM, held_out: true}
