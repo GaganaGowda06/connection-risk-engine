@@ -13,7 +13,8 @@ All tests run on routes the model never trained on (leave-routes-out), unless st
 3. Ranges: 80% arrival ranges cover 0.78 to 0.82 on held-out routes overall, with no held-out route below 0.70.
 4. Late risk: P(delay at least 15 minutes) beats the historical baseline on Brier, with ECE at or below 0.05.
 5. Connections: P(miss) beats the gap-bucket baseline on Brier at two or more hubs, with ECE at or below 0.05 on pairs whose inbound has not yet arrived.
-6. Live: 7 consecutive days on an always-on host, under 1% capture loss, live metrics within the CIs of tests 2 to 4.
+6a. Out of time: the most recent archive week (2026-10-17 to 2026-10-23) is never trained, tuned or calibrated on, and is replayed through the service in Stage 6.
+6b. Live pipeline: our own capture runs on an always-on host with under 1% loss. Seven days is the target; if the project ends sooner, the README states the actual days and loss honestly.
 7. Data quality: every route passes the same cleaning checks (types, timezones, station matching, planned closures told apart from missing data) with no route-specific code.
 8. Trust: every number shown traces to a model output or a verified rule; unverified Delay Repay rules are never priced.
 9. Reliability: p95 under 2 seconds, visible degradation when data is stale, automatic recovery after a restart.
@@ -32,7 +33,7 @@ All tests run on routes the model never trained on (leave-routes-out), unless st
 4. If the plan cannot reach this goal, say so and bring the stronger fix; reopen any decision that blocks it.
 5. Propose one stronger option per stage, unasked.
 6. Use the right skills and tools automatically; ask first when unsafe or unclear.
-7. After every stage, update PLAN.md and this file's last line, and remind the user to re-upload PLAN.md to the Claude project files.
+7. After every stage, update PLAN.md and this file's last line, push, and remind the user to sync the GitHub repo in the Claude project's Context panel (add PLAN.md there the first time it exists).
 
 ## Guards
 Anchoring, passivity, overconfidence on familiar data, reflex apologies, missing ownership, reacting without the goal, dropping warnings for brevity, unresearched scope, drift, rationalising blockers.
