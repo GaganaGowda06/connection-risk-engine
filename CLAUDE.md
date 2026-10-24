@@ -1,3 +1,7 @@
+@GOAL.md
+
+Plan: see PLAN.md (created after Stage 0 research).
+
 # Connection Risk Engine
 
 Calibrated UK rail arrival ranges and connection risk on open Darwin and HSP data.
