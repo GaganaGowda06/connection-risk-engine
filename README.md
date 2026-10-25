@@ -87,6 +87,7 @@ The report ends with ranked changes to consider. None is implemented.
 
 ## Limitations
 
+- Live capture is stopped for good. GOAL test 6b (our own capture on an always-on host with under 1% loss) was not run and does not pass. The only measurement of the laptop capture, against the archive for 2026-10-17 to 2026-10-23, showed 54% to 80% of messages missing per day (reports/capture_loss/). History comes only from the community archive; HSP is used for spot checks.
 - Two routes only. Birmingham to Manchester has been downloaded (more than 150 complete days) but is not modelled.
 - Data runs from April to October 2026, so there is no winter, leaf-fall or storm season, and the test block is only 7 days, so intervals are wide.
 - The 10 minute change time at New Street is an assumption. National Rail's page did not give one. The page and API state it as assumed, and the connection tab shows how the answer moves at 5, 7, 10 and 15 minutes.
