@@ -192,7 +192,7 @@
   "git_head": "412ea01"
  },
  "cold_noslack": {
-  "run_id": "905346cbbb494cd0a625c667bc02a6c4",
+  "run_id": "1e197857e96a41e8ad5d350d204307ed",
   "gate": [
    {
     "baseline": "persistence",
@@ -285,7 +285,7 @@
     "score": 0.03255474885095186
    }
   },
-  "git_head": "412ea01"
+  "git_head": "a8ae660"
  },
  "warm": {
   "run_id": "d4cd2d2190cd425bb62b4931b57c0481",
