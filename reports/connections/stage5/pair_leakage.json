@@ -1,0 +1,49 @@
+{
+ "checked": 300,
+ "days": [
+  "2026-09-27",
+  "2026-09-29",
+  "2026-10-01",
+  "2026-10-02",
+  "2026-10-03",
+  "2026-10-06"
+ ],
+ "mismatches": {
+  "in_arr_late_s": 0,
+  "in_fc_late_s": 0,
+  "in_last_late_s": 0,
+  "in_last_age_s": 0,
+  "in_cancel_known": 0,
+  "out_dep_late_s": 0,
+  "out_fc_late_s": 0,
+  "out_arr_late_s": 0,
+  "out_arr_actual": 0,
+  "out_last_late_s": 0,
+  "out_last_age_s": 0,
+  "out_cancel_known": 0,
+  "cong_recent_n": 0,
+  "cong_recent_late_min": 0,
+  "cong_cancel_n": 0,
+  "cong_sched_n": 0
+ },
+ "total_mismatches": 0,
+ "nonnull": {
+  "in_arr_late_s": 157,
+  "in_fc_late_s": 300,
+  "in_last_late_s": 274,
+  "in_last_age_s": 274,
+  "in_cancel_known": 300,
+  "out_dep_late_s": 0,
+  "out_fc_late_s": 299,
+  "out_arr_late_s": 165,
+  "out_arr_actual": 300,
+  "out_last_late_s": 124,
+  "out_last_age_s": 124,
+  "out_cancel_known": 300,
+  "cong_recent_n": 300,
+  "cong_recent_late_min": 300,
+  "cong_cancel_n": 300,
+  "cong_sched_n": 300
+ },
+ "examples": []
+}

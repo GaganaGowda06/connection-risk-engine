@@ -1,0 +1,15 @@
+# Stage 5: connection risk (P(miss)) at three hubs, built from the timetable for every service.
+hubs: [BHM, MAN, BRI]
+horizons: [5, 15, 30, 60]       # minutes before the outbound's scheduled departure
+max_gap_min: 60                 # scheduled gap from the hub MCT up to this
+actual_window_h: 12             # an actual or forecast further than this from its plan is ignored
+# Train pairs are thinned by a stable hash (1 in thin); validation, test and February never are.
+thin: 8
+# Service groups: a service's corridor is (origin CRS, destination CRS) from its first schedule.
+# A corridor is held out when md5(corridor) mod group_mod == group_hold, or when it is the corridor
+# of a held-out route in config/routes.yaml (either direction). Pairs with a held-out inbound or
+# outbound corridor never reach a fit, a tuning fold or a calibration.
+group_mod: 6
+group_hold: 0
+bootstrap: {resamples: 1000, seed: 20261015, confidence: 0.95}
+slices: 8                       # feature queries run on 1/slices of the pairs at a time

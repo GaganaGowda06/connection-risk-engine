@@ -225,3 +225,30 @@ def train_pool_table(
     dataset = ds.dataset([str(p) for p in parts], format="parquet")
     keep = ds.field("split") == _ACTIVE_SPLIT
     return dataset.to_table(columns=columns, filter=keep if where is None else keep & where)
+
+
+def train_pool_view(
+    con,
+    out: Path,
+    view: str,
+    table: str,
+    columns: list[str],
+    service_dates: list[date],
+) -> bool:
+    """Same guard as train_pool_table, for DuckDB: a lazy view over the table's partitions for
+    `service_dates`, limited to the active split (train_pool unless reading_split opened another)
+    and to `columns`. DuckDB pushes column and row filters of later queries into the Parquet
+    scan, so nothing is loaded whole. Returns False when there is no partition."""
+    parts = sorted(
+        p for d in service_dates for p in (out / table / f"service_date={d}").glob("*.parquet")
+    )
+    if not parts:
+        return False
+    files = ", ".join("'" + str(p).replace("'", "''") + "'" for p in parts)
+    cols = ", ".join(columns)
+    sql = (
+        f"CREATE OR REPLACE TEMP VIEW {view} AS SELECT {cols} FROM read_parquet([{files}]) "  # noqa: S608
+        f"WHERE split = '{_ACTIVE_SPLIT}'"
+    )
+    con.execute(sql)
+    return True

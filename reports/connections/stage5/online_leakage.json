@@ -1,0 +1,15 @@
+{
+ "rows": 2287050,
+ "eta": 0.0003,
+ "option": "lgbm",
+ "latest_applied_departure_before_T_for_all_rows": true,
+ "brute_force_sample": 3000,
+ "brute_force_mismatches": 0,
+ "flipped_outcomes": 1231473,
+ "rows_before_cut": 1023153,
+ "rows_before_cut_changed": 0,
+ "rows_6h_after_cut": 1192807,
+ "rows_6h_after_cut_changed": 1192807,
+ "max_change_after": 0.9993046594823305,
+ "passed": true
+}
