@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 5 (connections)**; Stages 1 to 4 are met.
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 6 (live service)**; Stages 1 to 5 are met.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -90,9 +90,10 @@ Cause of the earlier failure, tested: not seasonal drift outside the training da
 Limits: the ranges need a live feed of arrival outcomes and a route's first day is the static CQR; an incident is followed, not anticipated; the model does not beat the history-aware shrunk persistence at 60 minutes on the test block; the Liverpool-end cause is unknown.
 Also done: permanent target sanity check, adaptive leakage test on real data (0 of 360 reruns differ), failure tests, wider grid (no change).
 
-### Stage 5: connections at BHM, MAN and BRI (test 5)
-Scope: P(miss) classifier with parsed minimum connection times.
-Done means: P(miss) beats the gap-bucket baseline on Brier at two or more hubs, ECE at or below 0.05 on pairs whose inbound has not yet arrived.
+### Stage 5: connections at BHM, MAN and BRI (test 5) - MET 2026-10-25
+Scope: P(miss) classifier with parsed minimum connection times, on every timetabled passenger pair at the hub (MCT to 60 minutes), horizons counted back from the outbound's scheduled departure.
+Done means: P(miss) beats the gap-bucket baseline on Brier at two or more hubs, ECE at or below 0.05 on pairs whose inbound has not yet arrived. Met: MLflow run cd4ac6e9d4fd4d999bb7216d450f600d (fit at clean commit 192ce92, test scored once at clean commit c9df23c). On held-out service groups, 3 of 3 hubs pass: not-yet-arrived Brier 0.048, 0.043 and 0.049 against 0.150, 0.127 and 0.150, CIs of the difference all below zero, ECE 0.004, 0.014 and 0.008. Leave-hub-out and February also pass at every hub.
+Limits: no online recalibration ships (no gain on validation); the model does not foresee a late outbound saving a connection; it stays confident when the feed goes stale (Brier 0.019 to 0.377 in a missing hour); the held-out unit is a corridor.
 
 ### Stage 6: live service on an always-on host (tests 6a, 6b, 9)
 Scope: the API on the Oracle host beside the capture, weather from the Met Office DataHub, and a replay of the split=oot_week week (2026-10-17 to 2026-10-23) through the service.
