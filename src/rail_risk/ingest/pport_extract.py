@@ -4,6 +4,7 @@ import json
 import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -185,6 +186,23 @@ def partial_days(stats_dir: Path) -> list[str]:
     return out
 
 
+_ACTIVE_SPLIT = "train_pool"
+
+
+@contextmanager
+def reading_split(split: str, purpose: str):
+    """Let train_pool_table read one other split inside the block. Only the February stress report
+    may read winter_test, once; oot_week can never be read through this function."""
+    global _ACTIVE_SPLIT
+    if split != "winter_test" or purpose != "february_stress":
+        raise ValueError(f"reading split {split!r} for {purpose!r} is not allowed")
+    previous, _ACTIVE_SPLIT = _ACTIVE_SPLIT, split
+    try:
+        yield
+    finally:
+        _ACTIVE_SPLIT = previous
+
+
 def train_pool_table(
     out: Path,
     table: str,
@@ -205,5 +223,5 @@ def train_pool_table(
     if not parts:
         return pa.table({})
     dataset = ds.dataset([str(p) for p in parts], format="parquet")
-    keep = ds.field("split") == "train_pool"
+    keep = ds.field("split") == _ACTIVE_SPLIT
     return dataset.to_table(columns=columns, filter=keep if where is None else keep & where)

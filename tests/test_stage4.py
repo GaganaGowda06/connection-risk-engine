@@ -99,3 +99,39 @@ def test_history_features_use_strictly_earlier_dates_only():
 def test_warm_base_adds_recent_recovery_and_cold_base_is_the_baseline():
     df = pd.DataFrame({"late_now_min": [2.0, np.nan], "recent_recovery_min": [-1.5, np.nan]})
     assert list(D.base_point(None, df, warm=True)) == [0.5, 0.0]
+
+
+def test_only_the_february_stress_report_can_read_winter_test_and_oot_week_never(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import pytest
+
+    from rail_risk.ingest import pport_extract as P
+
+    d = date(2026, 2, 3)
+    part = tmp_path / "stop_actuals" / f"service_date={d}"
+    part.mkdir(parents=True)
+    pq.write_table(
+        pa.table({"rid": ["a", "b", "c"], "split": ["train_pool", "winter_test", "oot_week"]}),
+        part / "x.parquet",
+    )
+    assert P.train_pool_table(tmp_path, "stop_actuals", ["rid"], [d])["rid"].to_pylist() == ["a"]
+    with pytest.raises(ValueError):
+        P.reading_split("oot_week", "february_stress").__enter__()
+    with pytest.raises(ValueError):
+        P.reading_split("winter_test", "tuning").__enter__()
+    with P.reading_split("winter_test", "february_stress"):
+        got = P.train_pool_table(tmp_path, "stop_actuals", ["rid"], [d])["rid"].to_pylist()
+        assert got == ["b"]  # oot_week rows are still not returned
+    assert P.train_pool_table(tmp_path, "stop_actuals", ["rid"], [d])["rid"].to_pylist() == ["a"]
+
+
+def test_a_tiny_calibration_pool_fails_loudly_instead_of_giving_a_range():
+    import pytest
+
+    tiny = pool(30)
+    for method in C.METHODS:
+        with pytest.raises(ValueError, match="too few calibration rows"):
+            C.RangeCalibrator(method).fit(tiny)
+    with pytest.raises(ValueError, match="too few"):
+        C.RangeCalibrator("cqr").fit(pool(0))

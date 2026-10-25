@@ -26,6 +26,7 @@ LENGTH_EDGES = [40.0, 100.0]  # scheduled minutes: short, medium, long
 STOPS_EDGES = [3, 7, 16]  # public stops left: 0-2, 3-6, 7-15, 16 and over
 LEVELS = [("h", "lb", "lc", "sb"), ("h", "lb", "lc"), ("h", "lb"), ("h",)]
 METHODS = ("cross", "cqr", "mondrian")
+MIN_POOL_PER_HORIZON = 100  # fewer calibration rows than this at a horizon is an error
 
 
 def group_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -51,6 +52,13 @@ class RangeCalibrator:
         """pool: point, lo, hi, target_min and the group columns, from out-of-route predictions."""
         res = pool["target_min"] - pool["point"]
         g = group_frame(pool)
+        small = g["h"].value_counts()
+        small = small[small < MIN_POOL_PER_HORIZON]
+        if len(small) or pool.empty:
+            raise ValueError(
+                f"too few calibration rows per horizon (minimum {MIN_POOL_PER_HORIZON}): "
+                f"{dict(small) or 'empty pool'}"
+            )
         if self.method == "cross":
             for h, r in res.groupby(g["h"]):
                 self.offsets[(int(h),)] = (

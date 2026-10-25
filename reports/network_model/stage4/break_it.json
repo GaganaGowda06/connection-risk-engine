@@ -1,0 +1,35 @@
+{
+ "run_id": "905346cbbb494cd0a625c667bc02a6c4",
+ "missing_hour": {
+  "day": "2026-09-28",
+  "rows_after_gap": 87,
+  "coverage_normal": 0.736,
+  "coverage_missing": 0.736,
+  "mean_width_normal": 9.23,
+  "mean_width_missing": 10.14,
+  "finite": true
+ },
+ "nothing_ahead": {
+  "rows": 240,
+  "coverage": 0.854,
+  "coverage_other_rows": 0.806
+ },
+ "lst_cbg_incident_evening": {
+  "rows_that_day": 204,
+  "incident_rows_late_45_plus": 24,
+  "coverage_that_day": 0.701,
+  "coverage_incident_rows": 0.375,
+  "coverage_other_rows": 0.744,
+  "coverage_lst_cbg_other_days": 0.808
+ },
+ "small_groups": {
+  "finest_cells_in_pool": 277,
+  "finest_cells_under_min_cell": 81,
+  "validation_held_out_rows_in_a_small_or_empty_finest_cell": 178,
+  "share": 0.009,
+  "min_cell": 150,
+  "mondrian_coverage_all": 0.763,
+  "mondrian_coverage_rows_in_small_cells": 0.73
+ },
+ "tiny_pool": "raised: too few calibration rows per horizon (minimum 100): {60: np.int64(10), 120: np.int64(10), 30: np.int64(3), 90: np.int64(3), 5: np.int64(2), 15: np.int64(2)}"
+}

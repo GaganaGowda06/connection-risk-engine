@@ -53,7 +53,7 @@ def main() -> None:
             hold, pred["lo"].to_numpy(), pred["hi"].to_numpy(), HEADLINE
         ),
     }
-    allh = tuple(sorted(hold["horizon_min"].unique()))
+    allh = tuple(int(h) for h in sorted(hold["horizon_min"].unique()))
     out["coverage_all_horizons"] = {
         h: C.coverage_table(hold, pred["lo"].to_numpy(), pred["hi"].to_numpy(), (h,))[h]["coverage"]
         for h in allh

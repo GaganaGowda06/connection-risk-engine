@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 4 (calibration)**; Stages 1, 2 and 3 are met.
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 4 (calibration)**, open: test 4 and February done, test 3 not met (bhm-liv). Stages 1, 2 and 3 are met.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -83,9 +83,13 @@ Note on PLAN vs Stage 3 scope: PLAN set persistence and historical as the bar; S
 Also found: test 3 NOT met by raw ranges (coverage 0.737 at 15 and 0.770 at 60; bhm-liv 0.500 at 15, bri-cdf 0.658 at 60), test 4 met on this block (Brier 0.021 and 0.039 against 0.051, ECE 0.014 and 0.015). Stage 4 carries test 3.
 Caveats: a Stage 2 target defect (day-late duplicate rows) was found and fixed, the Stage 2 bar restated (DECISIONS.md); weather not used (not ingested); what-is-ahead features add only about 2 percent; the worst errors are incidents announced after T; myb-bmo is worse than shrunk persistence at 60 minutes; tuned at the grid edge.
 
-### Stage 4: calibration (tests 3, 4, plus a separate February stress report)
-Scope: cross-conformal ranges with transferable Mondrian groups, calibrated P(delay at least 15); split=oot_week never used for calibration.
-Done means: 80% ranges cover 0.78 to 0.82 on held-out routes overall and no route below 0.70 (test 3); P(delay at least 15) beats the historical Brier with ECE at or below 0.05 (test 4); February 2026 is scored once, reported separately, and never used to tune.
+### Stage 4: calibration (tests 3, 4, plus a separate February stress report) - OPEN, test 3 not met
+Scope: out-of-route calibrated ranges (CQR chosen on validation), calibrated P(delay at least 15); split=oot_week never used; February scored once, reported separately, never used to tune.
+Done means: 80% ranges cover 0.78 to 0.82 on held-out routes overall and no route below 0.70 (test 3); P(delay at least 15) beats the historical Brier with ECE at or below 0.05 (test 4); February 2026 scored once.
+Status 2026-10-25 (evidence in DECISIONS.md; MLflow calibration run 87a1165ce4f54a68b2d2a6853928f599 on model run 905346cbbb494cd0a625c667bc02a6c4): test 4 met (Brier 0.021 and 0.040 against 0.051, ECE 0.013 and 0.012); February reported (MAE 1.97 and 3.05, coverage 0.826 and 0.804, ECE 0.005 and 0.007); test 3 NOT met: overall coverage 0.822 (inside the band at 60, 0.003 over at 15) but bhm-liv is 0.582 and 0.681 on the test block (a route whose running drifts over weeks, so the training period misleads the model).
+Route-history decision: the claim rests on cold start without slack or route-history features (beats persistence, paired CIs below zero, no route history anywhere); history mode is an upgrade. The cold-start variant that kept the slack table failed. Against the history-aware Stage 2 shrunk persistence the cold model does not win at 60 minutes on the test block.
+Open to close it: route-local adaptive calibration (history mode) selected on validation, then one new test scoring; and the stronger fix must not use any scored day's labels.
+Also done: permanent target sanity check (fails loudly), failure tests, wider grid (no change).
 
 ### Stage 5: connections at BHM, MAN and BRI (test 5)
 Scope: P(miss) classifier with parsed minimum connection times.
