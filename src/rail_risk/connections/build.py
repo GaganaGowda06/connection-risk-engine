@@ -14,6 +14,7 @@ actual and no cancellation is data missing: the pair is dropped. Nothing here na
 """
 
 import hashlib
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -78,7 +79,8 @@ def pair_mct(pairs: pd.DataFrame, table: pd.DataFrame) -> pd.Series:
 def _rss_mb() -> int:
     import resource
 
-    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6)  # bytes on macOS
+    unit = 1e6 if sys.platform == "darwin" else 1e3  # ru_maxrss: bytes on macOS, kB on Linux
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / unit)
 
 
 def _cols(root, table, cols, ssd):

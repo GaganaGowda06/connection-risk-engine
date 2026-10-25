@@ -45,22 +45,48 @@ def _store() -> SqliteStore:
     return SqliteStore(STATE_DIR / "state.sqlite")
 
 
+_FRESH_CACHE: dict = {}
+
+
+def _fresh(store: SqliteStore) -> tuple[pd.Timestamp, int | None] | None:
+    f = store.load_fresh()
+    if f is None:  # a state written before the small summary existed: read the blob once per clock
+        blob = store.load_blob()
+        if not blob:
+            return None
+        key = blob["clock"]
+        if key not in _FRESH_CACHE:
+            minutes = np.array(blob["minutes"], dtype="int64")
+            now_min = int(pd.Timestamp(key).timestamp() // 60)
+            last = minutes[minutes <= now_min]
+            _FRESH_CACHE.clear()
+            _FRESH_CACHE[key] = int(last.max()) if len(last) else None
+        return pd.Timestamp(key), _FRESH_CACHE[key]
+    return pd.Timestamp(f["clock"]), f["last_minute"]
+
+
 def _meta(store: SqliteStore) -> dict:
-    blob = store.load_blob()
-    th = Thresholds.load(THRESHOLDS)
-    if not blob:
+    th = _thresholds()
+    got = _fresh(store)
+    if not got:
         return {"data_as_of": None, "feed_age_min": None, "stale": True,
                 "stale_reason": "no data ingested yet", "hours_done": 0}  # fmt: skip
-    clock = pd.Timestamp(blob["clock"])
-    minutes = np.array(blob["minutes"], dtype="int64")
-    now_min = int(clock.timestamp() // 60)
-    last = minutes[minutes <= now_min]
-    age = float(now_min - last.max()) if len(last) else 1e6
+    clock, last = got
+    age = float(int(clock.timestamp() // 60) - last) if last is not None else 1e6
     stale = age > th.feed_min
     return {
         "data_as_of": str(clock), "feed_age_min": round(age, 1), "stale": bool(stale),
         "stale_reason": f"no message for {age:.0f} min" if stale else "", "hours_done": None,
     }  # fmt: skip
+
+
+_TH: dict = {}
+
+
+def _thresholds() -> Thresholds:
+    if "t" not in _TH:
+        _TH["t"] = Thresholds.load(THRESHOLDS)
+    return _TH["t"]
 
 
 def _ids() -> dict:
@@ -83,7 +109,7 @@ def health() -> dict:
     store = _store()
     try:
         meta = _meta(store)
-        meta["hours_done"] = len(store.hours_done())
+        meta["hours_done"] = store.hours_count()
         meta["ids"] = _ids()
         meta["uptime_s"] = round(time.time() - STARTED, 1)
         meta["status"] = "degraded" if meta["stale"] else "ok"

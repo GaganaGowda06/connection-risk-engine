@@ -188,6 +188,23 @@ class SqliteStore(StateStore):
             r[0] for r in self.con.execute("select name from sqlite_master where type='table'")
         }
 
+    INDEXES = {
+        "arrival": ["rid", "snap_time"],
+        "pair": ["in_rid, out_rid", "hub, plan_arr_in"],
+    }
+
+    def _index(self) -> None:
+        """Lookups by service, by pair and by hub and planned arrival must not scan the ledger."""
+        for table, specs in self.INDEXES.items():
+            if table in self._have:
+                for cols in specs:
+                    name = f"ix_{table}_{cols.replace(', ', '_')}"
+                    self.con.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols})")
+
+    def load_fresh(self) -> dict | None:
+        r = self.con.execute("select v from meta where k='fresh'").fetchone()
+        return json.loads(r[0]) if r else None
+
     @staticmethod
     def _typed(f: pd.DataFrame) -> pd.DataFrame:
         """Timestamps as text (SQLite has no time type), every other column keeps its dtype so the
@@ -218,11 +235,16 @@ class SqliteStore(StateStore):
                     f"INSERT INTO {k} VALUES ({marks})", g.itertuples(index=False, name=None)
                 )
             c.execute("INSERT OR REPLACE INTO meta VALUES ('blob', ?)", (json.dumps(blob),))
+            if "fresh" in blob:
+                c.execute(
+                    "INSERT OR REPLACE INTO meta VALUES ('fresh', ?)", (json.dumps(blob["fresh"]),)
+                )
             c.execute("INSERT INTO hours VALUES (?)", (hour,))
             c.execute("COMMIT")
         except Exception:
             c.execute("ROLLBACK")
             raise
+        self._index()
 
     def load_blob(self):
         r = self.con.execute("select v from meta where k='blob'").fetchone()
@@ -230,6 +252,9 @@ class SqliteStore(StateStore):
 
     def hours_done(self):
         return [r[0] for r in self.con.execute("select h from hours order by h")]
+
+    def hours_count(self) -> int:
+        return int(self.con.execute("select count(*) from hours").fetchone()[0])
 
     def _q(self, sql, params=()):
         return pd.read_sql_query(sql, self.con, params=params)

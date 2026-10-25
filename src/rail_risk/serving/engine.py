@@ -18,6 +18,7 @@ import heapq
 import json
 import os
 import shutil
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -45,6 +46,7 @@ from rail_risk.serving.state import StateStore
 
 TABLES = ("schedules", "schedule_points", "stop_updates", "associations", "deactivations")
 HOUR = pd.Timedelta(hours=1)
+RSS_UNIT = 1e6 if sys.platform == "darwin" else 1e3  # ru_maxrss is bytes on macOS, kB on Linux
 TARGET_MISS = 0.2
 MAX_ACTUAL = pd.Timedelta(hours=12)
 log = get_logger("serving")
@@ -463,15 +465,22 @@ class Engine:
     def _track_memory(self) -> None:
         import resource
 
-        mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6
+        mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / RSS_UNIT
         self.peak_mb = max(self.peak_mb, mb)
         if self.peak_mb > self.mem_limit_mb:
             raise MemoryError(
                 f"peak memory {self.peak_mb:.0f} MB is over the {self.mem_limit_mb:.0f} MB limit"
             )
 
+    def fresh(self) -> dict:
+        """What /health needs, small: the clock and the last message minute at or before it."""
+        now_min = int(self.clock.timestamp() // 60) if self.clock is not None else 0
+        last = self.minutes[self.minutes <= now_min]
+        return {"clock": str(self.clock), "last_minute": int(last.max()) if len(last) else None}
+
     def blob(self) -> dict:
         return {
+            "fresh": self.fresh(),
             "aci": self.aci.to_json(), "minutes": self.minutes.tolist(),
             "hub_minutes": {h: v.tolist() for h, v in self.hub_minutes.items()},
             "clock": str(self.clock),

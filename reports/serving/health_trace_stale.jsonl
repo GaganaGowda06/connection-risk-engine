@@ -1,0 +1,7 @@
+{"wall": "21:37:45", "hours_done": 0, "data_as_of": null, "feed_age_min": null, "stale": true, "status": "degraded", "reason": "no data ingested yet"}
+{"wall": "21:42:33", "hours_done": 81, "data_as_of": "2026-10-20 08:00:00+00:00", "feed_age_min": 1.0, "stale": false, "status": "ok", "reason": ""}
+{"wall": "21:42:36", "hours_done": 82, "data_as_of": "2026-10-20 09:00:00+00:00", "feed_age_min": 59.0, "stale": true, "status": "degraded", "reason": "no message for 59 min"}
+{"wall": "21:42:40", "hours_done": 83, "data_as_of": "2026-10-20 10:00:00+00:00", "feed_age_min": 119.0, "stale": true, "status": "degraded", "reason": "no message for 119 min"}
+{"wall": "21:42:44", "hours_done": 84, "data_as_of": "2026-10-20 11:00:00+00:00", "feed_age_min": 179.0, "stale": true, "status": "degraded", "reason": "no message for 179 min"}
+{"wall": "21:42:48", "hours_done": 85, "data_as_of": "2026-10-20 12:00:00+00:00", "feed_age_min": 1.0, "stale": false, "status": "ok", "reason": ""}
+{"wall": "21:42:52", "hours_done": 86, "data_as_of": "2026-10-20 13:00:00+00:00", "feed_age_min": 1.0, "stale": false, "status": "ok", "reason": ""}
