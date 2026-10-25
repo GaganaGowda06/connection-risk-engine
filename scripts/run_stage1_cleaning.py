@@ -18,6 +18,40 @@ from rail_risk.config import load_routes
 OUT = Path("reports")
 
 
+def write_coverage(by_toc: pd.DataFrame, routes) -> None:
+    """Test 1 evidence: per route and month, trains of the table's operator and of any operator."""
+    months = sorted(by_toc["month"].unique())
+    rows = []
+    for r in routes.routes:
+        if r.legacy:
+            continue
+        mine = by_toc[by_toc["route"] == r.id]
+        for m in months:
+            in_month = mine[mine["month"] == m]
+            own = in_month[in_month["toc"] == r.toc]
+            rows.append(
+                {
+                    "route": r.id,
+                    "hub": r.hub,
+                    "operator": r.operator,
+                    "toc": r.toc,
+                    "length": r.length,
+                    "set": "held_out" if r.held_out else "train",
+                    "month": m,
+                    "scheduled_operator": int(own["scheduled"].sum()),
+                    "ran_operator": int(own["ran"].sum()),
+                    "cancelled_operator": int(own["cancelled"].sum()),
+                    "scheduled_all_operators": int(in_month["scheduled"].sum()),
+                }
+            )
+    cov = pd.DataFrame(rows)
+    cov.to_csv(OUT / "stage1_coverage.csv", index=False)
+    empty = cov[cov["scheduled_operator"] == 0]
+    print(f"routes {cov['route'].nunique()} months {len(months)} empty route-months {len(empty)}")
+    if len(empty):
+        print(empty[["route", "month"]].to_string(index=False))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=Path, default=Path("data/interim/pport"))
@@ -45,9 +79,11 @@ def main() -> None:
     by_day = pd.DataFrame([r for d in per_day for r in d["checks"]])
     by_day[by_day["route"] != "network"].to_csv(OUT / "stage1_cleaning_by_day.csv", index=False)
     route = pd.DataFrame([r for d in per_day for r in d["route_cov"]])
-    route.groupby(["route", "month"], as_index=False)[
+    by_toc = route.groupby(["route", "toc", "month"], as_index=False)[
         ["scheduled", "ran", "cancelled"]
-    ].sum().to_csv(OUT / "stage1_coverage_routes.csv", index=False)
+    ].sum()
+    by_toc.to_csv(OUT / "stage1_coverage_routes.csv", index=False)
+    write_coverage(by_toc, load_routes("config/routes.yaml"))
     toc = pd.DataFrame([r for d in per_day for r in d["toc_cov"]])
     toc.groupby(["toc", "month"], as_index=False)["scheduled"].sum().to_csv(
         OUT / "stage1_coverage_operators.csv", index=False

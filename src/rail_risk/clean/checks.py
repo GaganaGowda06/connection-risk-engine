@@ -166,9 +166,17 @@ def closure_classes(
     return cls.rename("class").reset_index()
 
 
+# Actual times are whole minutes (every one in the extract), and an arrival and a departure at one
+# stop are separate events (often separate berth steps). An inversion of one reporting minute is
+# therefore measurement resolution, not a train running backwards: it is counted apart and only a
+# larger inversion is called impossible. The rule is the same on every route and stop.
+RESOLUTION = pd.Timedelta(minutes=1)
+
+
 def sequence_failures(actuals: pd.DataFrame, points: pd.DataFrame) -> dict[str, pd.Series]:
     """Impossible orderings, per rid: arrival before the previous departure, negative dwell, and
-    scheduled working times that run backwards along a calling pattern."""
+    scheduled working times that run backwards along a calling pattern. Inversions within the
+    reporting resolution are returned separately as `*_within_resolution`."""
     out: dict[str, pd.Series] = {}
     a = actuals.copy()
     a["wt"] = a["wt_arr"].fillna(a["wt_dep"]).fillna(a["wt_pass"])
@@ -178,11 +186,17 @@ def sequence_failures(actuals: pd.DataFrame, points: pd.DataFrame) -> dict[str, 
     stop = arr.merge(dep, on=keys, how="outer", suffixes=("", "_d"))
     stop["wt"] = stop["wt"].fillna(stop["wt_d"])
     stop = stop.sort_values(["rid", "wt"])
-    neg = stop["dep"] < stop["arr"]
+    gap = stop["arr"] - stop["dep"]
+    neg = gap > RESOLUTION
     out["impossible_negative_dwell"] = neg.groupby(stop["rid"]).sum()
+    out["resolution_negative_dwell"] = ((gap > pd.Timedelta(0)) & ~neg).groupby(stop["rid"]).sum()
     prev_dep = stop.groupby("rid")["dep"].shift(1)
-    early = stop["arr"] < prev_dep
+    lead = prev_dep - stop["arr"]
+    early = lead > RESOLUTION
     out["impossible_arrival_before_prev_departure"] = early.groupby(stop["rid"]).sum()
+    out["resolution_arrival_before_prev_departure"] = (
+        ((lead > pd.Timedelta(0)) & ~early).groupby(stop["rid"]).sum()
+    )
     p = points.sort_values(["rid", "seq"]).copy()
     p["wt_any"] = p["wt_arr"].fillna(p["wt_pass"]).fillna(p["wt_dep"])
     back = p.groupby("rid")["wt_any"].diff() < pd.Timedelta(0)

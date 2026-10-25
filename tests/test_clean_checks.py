@@ -110,8 +110,11 @@ def test_sequence_failures_count_negative_dwell_and_early_arrival():
             )
 
     stop("r", "S1", "2026-10-14 10:00", None, "2026-10-14 10:01")
-    stop("r", "S2", "2026-10-14 10:10", "2026-10-14 10:12", "2026-10-14 10:11")  # dep before arr
+    stop(
+        "r", "S2", "2026-10-14 10:10", "2026-10-14 10:12", "2026-10-14 10:09"
+    )  # dep 3 min before arr
     stop("r", "S3", "2026-10-14 10:20", "2026-10-14 10:05", None)  # arrives before S2 left
+    stop("r", "S4", "2026-10-14 10:30", "2026-10-14 10:30", "2026-10-14 10:29")  # one minute only
     actuals = pd.DataFrame(rows)
     points = pd.DataFrame(
         {
@@ -126,6 +129,8 @@ def test_sequence_failures_count_negative_dwell_and_early_arrival():
     assert out["impossible_negative_dwell"]["r"] == 1
     assert out["impossible_arrival_before_prev_departure"]["r"] == 1
     assert out["impossible_schedule_time_decreasing"]["r"] == 1
+    # an inversion of one reporting minute is resolution, counted apart and not impossible
+    assert out["resolution_negative_dwell"]["r"] == 1
 
 
 def test_duplicate_update_rids_counts_exact_repeats_only():

@@ -1,0 +1,251 @@
+route,hub,operator,toc,length,set,month,scheduled_operator,ran_operator,cancelled_operator,scheduled_all_operators
+eus-man,London,Avanti West Coast,VT,long,train,2025-10,33,31,2,33
+eus-man,London,Avanti West Coast,VT,long,train,2025-11,33,30,3,33
+eus-man,London,Avanti West Coast,VT,long,train,2025-12,1063,985,78,1063
+eus-man,London,Avanti West Coast,VT,long,train,2026-01,1149,998,151,1149
+eus-man,London,Avanti West Coast,VT,long,train,2026-02,855,812,43,855
+eus-man,London,Avanti West Coast,VT,long,train,2026-03,66,62,4,66
+eus-man,London,Avanti West Coast,VT,long,train,2026-07,327,288,39,327
+eus-man,London,Avanti West Coast,VT,long,train,2026-08,1271,1142,129,1271
+eus-man,London,Avanti West Coast,VT,long,train,2026-09,1317,1287,30,1317
+eus-man,London,Avanti West Coast,VT,long,train,2026-10,981,913,41,981
+kgx-lds,London,LNER,GR,long,train,2025-10,24,24,0,24
+kgx-lds,London,LNER,GR,long,train,2025-11,21,14,7,21
+kgx-lds,London,LNER,GR,long,train,2025-12,904,847,57,904
+kgx-lds,London,LNER,GR,long,train,2026-01,912,861,51,912
+kgx-lds,London,LNER,GR,long,train,2026-02,716,687,29,716
+kgx-lds,London,LNER,GR,long,train,2026-03,53,49,4,53
+kgx-lds,London,LNER,GR,long,train,2026-07,260,253,7,260
+kgx-lds,London,LNER,GR,long,train,2026-08,988,884,101,988
+kgx-lds,London,LNER,GR,long,train,2026-09,1009,963,44,1009
+kgx-lds,London,LNER,GR,long,train,2026-10,782,730,30,782
+pad-bri,London,GWR,GW,medium,train,2025-10,17,15,2,17
+pad-bri,London,GWR,GW,medium,train,2025-11,17,17,0,17
+pad-bri,London,GWR,GW,medium,train,2025-12,1006,926,80,1006
+pad-bri,London,GWR,GW,medium,train,2026-01,997,917,80,997
+pad-bri,London,GWR,GW,medium,train,2026-02,900,882,18,900
+pad-bri,London,GWR,GW,medium,train,2026-03,34,30,3,34
+pad-bri,London,GWR,GW,medium,train,2026-07,262,252,10,262
+pad-bri,London,GWR,GW,medium,train,2026-08,995,910,85,995
+pad-bri,London,GWR,GW,medium,train,2026-09,996,867,125,996
+pad-bri,London,GWR,GW,medium,train,2026-10,835,770,37,835
+eus-wfj,London,London Northwestern,LM,short,train,2025-10,47,36,10,68
+eus-wfj,London,London Northwestern,LM,short,train,2025-11,47,44,3,71
+eus-wfj,London,London Northwestern,LM,short,train,2025-12,2404,2158,246,5092
+eus-wfj,London,London Northwestern,LM,short,train,2026-01,2645,2401,243,5538
+eus-wfj,London,London Northwestern,LM,short,train,2026-02,2468,2236,231,5024
+eus-wfj,London,London Northwestern,LM,short,train,2026-03,95,88,7,208
+eus-wfj,London,London Northwestern,LM,short,train,2026-07,713,639,74,1450
+eus-wfj,London,London Northwestern,LM,short,train,2026-08,2689,2277,405,5366
+eus-wfj,London,London Northwestern,LM,short,train,2026-09,2638,2332,306,5421
+eus-wfj,London,London Northwestern,LM,short,train,2026-10,2075,1813,196,4320
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2025-10,31,31,0,31
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2025-11,31,31,0,31
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2025-12,992,950,42,992
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-01,1094,1060,34,1094
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-02,1095,1024,71,1095
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-03,0,0,0,0
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-07,335,318,17,335
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-08,1270,1117,150,1270
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-09,1242,1189,49,1242
+lst-cbg,London,Greater Anglia,LE,medium,held_out,2026-10,929,766,159,929
+myb-bmo,London,Chiltern,CH,long,held_out,2025-10,29,29,0,29
+myb-bmo,London,Chiltern,CH,long,held_out,2025-11,18,18,0,18
+myb-bmo,London,Chiltern,CH,long,held_out,2025-12,844,825,18,844
+myb-bmo,London,Chiltern,CH,long,held_out,2026-01,894,835,58,894
+myb-bmo,London,Chiltern,CH,long,held_out,2026-02,788,782,6,788
+myb-bmo,London,Chiltern,CH,long,held_out,2026-03,18,14,4,18
+myb-bmo,London,Chiltern,CH,long,held_out,2026-07,230,226,4,230
+myb-bmo,London,Chiltern,CH,long,held_out,2026-08,858,815,41,858
+myb-bmo,London,Chiltern,CH,long,held_out,2026-09,818,789,26,818
+myb-bmo,London,Chiltern,CH,long,held_out,2026-10,671,641,7,671
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2025-10,0,0,0,0
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2025-11,34,32,2,58
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2025-12,1059,873,186,1792
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-01,1147,981,166,1938
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-02,1249,1135,114,2117
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-03,68,62,6,116
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-07,303,245,57,553
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-08,1202,1040,162,2164
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-09,1338,1239,99,2254
+bhm-eus,Birmingham,Avanti West Coast,VT,medium,train,2026-10,1011,896,91,1763
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2025-10,42,34,8,42
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2025-11,42,41,1,42
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2025-12,2817,2699,118,2817
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-01,3036,2744,286,3036
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-02,2736,2637,99,2736
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-03,86,81,5,86
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-07,793,744,47,793
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-08,2953,2771,180,2953
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-09,2942,2730,203,2942
+ast-bhm,Birmingham,West Midlands Railway,LM,short,train,2026-10,2369,2167,115,2369
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2025-10,19,18,1,19
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2025-11,18,13,5,18
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2025-12,822,703,119,837
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-01,918,795,123,945
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-02,571,525,46,587
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-03,35,27,8,35
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-07,240,199,41,246
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-08,897,735,162,900
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-09,900,764,136,914
+bhm-man,Birmingham,CrossCountry,XC,medium,train,2026-10,702,600,87,720
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2025-10,20,16,4,20
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2025-11,20,12,8,20
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2025-12,770,613,156,770
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-01,833,675,158,833
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-02,755,668,87,755
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-03,40,33,7,40
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-07,218,176,42,218
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-08,830,668,162,830
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-09,808,700,108,808
+bhm-bri,Birmingham,CrossCountry,XC,medium,train,2026-10,513,405,101,513
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2025-10,13,13,0,13
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2025-11,13,5,8,13
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2025-12,752,688,64,770
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-01,810,715,95,830
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-02,740,690,50,761
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-03,26,26,0,26
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-07,215,194,21,221
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-08,801,726,75,822
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-09,802,757,45,824
+bhm-liv,Birmingham,London Northwestern,LM,medium,held_out,2026-10,645,583,41,665
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2025-10,44,44,0,93
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2025-11,44,36,8,99
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2025-12,2670,2526,144,4713
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-01,2867,2573,293,5090
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-02,2561,2467,94,4565
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-03,74,71,3,170
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-07,745,674,68,1303
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-08,2843,2646,193,5036
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-09,2816,2685,123,4988
+bhm-wvh,Birmingham,West Midlands Railway,LM,short,train,2026-10,2262,2093,87,3962
+man-lds,Manchester,TransPennine Express,TP,medium,train,2025-10,14,14,0,14
+man-lds,Manchester,TransPennine Express,TP,medium,train,2025-11,13,7,6,13
+man-lds,Manchester,TransPennine Express,TP,medium,train,2025-12,703,641,62,703
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-01,586,469,117,586
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-02,483,451,32,483
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-03,54,53,1,54
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-07,206,170,36,206
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-08,818,708,108,818
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-09,486,438,46,486
+man-lds,Manchester,TransPennine Express,TP,medium,train,2026-10,575,515,48,575
+mcv-liv,Manchester,Northern,NT,medium,train,2025-10,0,0,0,17
+mcv-liv,Manchester,Northern,NT,medium,train,2025-11,0,0,0,18
+mcv-liv,Manchester,Northern,NT,medium,train,2025-12,75,71,4,924
+mcv-liv,Manchester,Northern,NT,medium,train,2026-01,81,79,2,795
+mcv-liv,Manchester,Northern,NT,medium,train,2026-02,74,69,5,949
+mcv-liv,Manchester,Northern,NT,medium,train,2026-03,0,0,0,49
+mcv-liv,Manchester,Northern,NT,medium,train,2026-07,21,20,1,260
+mcv-liv,Manchester,Northern,NT,medium,train,2026-08,78,69,8,908
+mcv-liv,Manchester,Northern,NT,medium,train,2026-09,74,74,0,845
+mcv-liv,Manchester,Northern,NT,medium,train,2026-10,63,57,5,747
+man-shf,Manchester,Northern,NT,medium,held_out,2025-10,9,9,0,37
+man-shf,Manchester,Northern,NT,medium,held_out,2025-11,9,8,1,37
+man-shf,Manchester,Northern,NT,medium,held_out,2025-12,449,428,21,1427
+man-shf,Manchester,Northern,NT,medium,held_out,2026-01,487,455,32,1538
+man-shf,Manchester,Northern,NT,medium,held_out,2026-02,305,302,3,956
+man-shf,Manchester,Northern,NT,medium,held_out,2026-03,17,17,0,73
+man-shf,Manchester,Northern,NT,medium,held_out,2026-07,127,123,4,400
+man-shf,Manchester,Northern,NT,medium,held_out,2026-08,480,461,19,1441
+man-shf,Manchester,Northern,NT,medium,held_out,2026-09,474,468,6,1496
+man-shf,Manchester,Northern,NT,medium,held_out,2026-10,378,353,14,1198
+man-mia,Manchester,Northern,NT,short,train,2025-10,26,20,6,65
+man-mia,Manchester,Northern,NT,short,train,2025-11,25,22,3,64
+man-mia,Manchester,Northern,NT,short,train,2025-12,2231,1990,241,3776
+man-mia,Manchester,Northern,NT,short,train,2026-01,2368,2226,142,3977
+man-mia,Manchester,Northern,NT,short,train,2026-02,1522,1414,108,2562
+man-mia,Manchester,Northern,NT,short,train,2026-03,45,44,1,104
+man-mia,Manchester,Northern,NT,short,train,2026-07,631,585,46,1097
+man-mia,Manchester,Northern,NT,short,train,2026-08,2373,2169,194,3995
+man-mia,Manchester,Northern,NT,short,train,2026-09,2341,2225,112,3906
+man-mia,Manchester,Northern,NT,short,train,2026-10,1899,1652,188,3237
+man-glc,Manchester,TransPennine Express,TP,long,train,2025-10,6,2,4,6
+man-glc,Manchester,TransPennine Express,TP,long,train,2025-11,5,5,0,5
+man-glc,Manchester,TransPennine Express,TP,long,train,2025-12,193,139,54,193
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-01,110,102,8,110
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-02,128,116,12,128
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-03,8,8,0,8
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-07,54,50,4,54
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-08,207,181,26,207
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-09,202,188,14,202
+man-glc,Manchester,TransPennine Express,TP,long,train,2026-10,163,136,23,163
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2025-10,9,5,4,10
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2025-11,14,13,1,15
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2025-12,470,398,72,493
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-01,316,288,28,341
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-02,548,499,49,572
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-03,28,27,1,30
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-07,160,130,30,167
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-08,606,564,42,632
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-09,597,577,20,622
+glc-eus,Glasgow,Avanti West Coast,VT,long,train,2026-10,479,425,46,499
+glq-edb,Glasgow,ScotRail,SR,medium,train,2025-10,57,56,1,58
+glq-edb,Glasgow,ScotRail,SR,medium,train,2025-11,57,56,1,58
+glq-edb,Glasgow,ScotRail,SR,medium,train,2025-12,2424,2367,57,2447
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-01,2461,2389,72,2486
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-02,2316,2252,64,2344
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-03,89,86,3,92
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-07,666,610,56,674
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-08,2544,2478,66,2575
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-09,2499,2418,75,2527
+glq-edb,Glasgow,ScotRail,SR,medium,train,2026-10,1994,1869,53,2016
+glc-pyg,Glasgow,ScotRail,SR,short,train,2025-10,82,80,2,82
+glc-pyg,Glasgow,ScotRail,SR,short,train,2025-11,82,82,0,82
+glc-pyg,Glasgow,ScotRail,SR,short,train,2025-12,4042,3896,146,4042
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-01,4073,4036,37,4073
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-02,3752,3702,50,3752
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-03,164,164,0,164
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-07,1099,1096,3,1099
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-08,4163,4075,80,4163
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-09,4095,4046,37,4095
+glc-pyg,Glasgow,ScotRail,SR,short,train,2026-10,3214,3052,51,3214
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2025-10,25,25,0,25
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2025-11,0,0,0,0
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2025-12,1136,1097,39,1136
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-01,1143,1134,9,1143
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-02,1072,1063,9,1072
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-03,50,50,0,50
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-07,308,307,1,308
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-08,1164,1147,16,1164
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-09,1142,1126,12,1142
+glc-ayr,Glasgow,ScotRail,SR,medium,train,2026-10,900,867,9,900
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2025-10,10,9,1,10
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2025-11,10,10,0,10
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2025-12,434,432,2,434
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-01,437,389,48,437
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-02,309,303,6,309
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-03,15,15,0,15
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-07,122,116,6,122
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-08,466,441,25,466
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-09,456,447,9,456
+glq-abd,Glasgow,ScotRail,SR,long,held_out,2026-10,366,350,5,366
+bri-cdf,Bristol,GWR,GW,medium,held_out,2025-10,24,24,0,25
+bri-cdf,Bristol,GWR,GW,medium,held_out,2025-11,24,20,4,25
+bri-cdf,Bristol,GWR,GW,medium,held_out,2025-12,973,854,119,998
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-01,1171,1073,98,1195
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-02,944,905,39,968
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-03,48,46,2,50
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-07,281,249,32,289
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-08,1049,812,237,1079
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-09,1043,950,92,1077
+bri-cdf,Bristol,GWR,GW,medium,held_out,2026-10,823,732,73,841
+bri-bth,Bristol,GWR,GW,short,train,2025-10,38,37,1,38
+bri-bth,Bristol,GWR,GW,short,train,2025-11,47,34,13,47
+bri-bth,Bristol,GWR,GW,short,train,2025-12,2195,1958,237,2195
+bri-bth,Bristol,GWR,GW,short,train,2026-01,2404,2237,167,2404
+bri-bth,Bristol,GWR,GW,short,train,2026-02,2090,2006,84,2090
+bri-bth,Bristol,GWR,GW,short,train,2026-03,72,69,3,72
+bri-bth,Bristol,GWR,GW,short,train,2026-07,660,609,51,660
+bri-bth,Bristol,GWR,GW,short,train,2026-08,2499,2183,315,2499
+bri-bth,Bristol,GWR,GW,short,train,2026-09,2436,2208,224,2436
+bri-bth,Bristol,GWR,GW,short,train,2026-10,1973,1781,126,1973
+bri-wsm,Bristol,GWR,GW,short,held_out,2025-10,28,26,2,29
+bri-wsm,Bristol,GWR,GW,short,held_out,2025-11,28,25,3,29
+bri-wsm,Bristol,GWR,GW,short,held_out,2025-12,1237,1146,90,1264
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-01,1261,1181,80,1292
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-02,1209,1179,30,1231
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-03,56,55,1,58
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-07,353,338,15,361
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-08,1340,1200,138,1374
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-09,1264,1168,94,1294
+bri-wsm,Bristol,GWR,GW,short,held_out,2026-10,1043,946,67,1065

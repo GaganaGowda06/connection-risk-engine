@@ -1,35 +1,41 @@
+# The single source for the route table (PLAN.md, Stage 1.3). 25 routes across 5 hubs; 11
+# operators on 10 Darwin TOC codes (London Northwestern and West Midlands Railway both use LM).
+# held_out: never used for training, tuning or calibration. legacy: used only by the older
+# two-route code, not one of the 25 and left out of coverage counts.
 routes:
-  - id: bhm-eus
-    origin: BHM
-    destination: EUS
-  - id: ast-bhm
-    origin: AST
-    destination: BHM
-  - id: bhm-man
-    origin: BHM
-    destination: MAN
-  - id: ast-eus-via-bhm
-    origin: AST
-    destination: EUS
-    via_hub: BHM
-  - id: bhm-lds
-    origin: BHM
-    destination: LDS
-  - id: bhm-bri
-    origin: BHM
-    destination: BRI
-  - id: bhm-liv
-    origin: BHM
-    destination: LIV
-    held_out: true
-  - id: bhm-glc
-    origin: BHM
-    destination: GLC
-  # Held out entirely from training, tuning and calibration (PLAN.md, Stage 0). bhm-liv above is
-  # the same, flagged here too.
-  - {id: lst-cbg, origin: LST, destination: CBG, held_out: true}
-  - {id: myb-bmo, origin: MYB, destination: BMO, held_out: true}
-  - {id: man-shf, origin: MAN, destination: SHF, held_out: true}
-  - {id: glq-abd, origin: GLQ, destination: ABD, held_out: true}
-  - {id: bri-cdf, origin: BRI, destination: CDF, held_out: true}
-  - {id: bri-wsm, origin: BRI, destination: WSM, held_out: true}
+  - {id: eus-man, hub: London, origin: EUS, destination: MAN, operator: Avanti West Coast, toc: VT, length: long}
+  - {id: kgx-lds, hub: London, origin: KGX, destination: LDS, operator: LNER, toc: GR, length: long}
+  - {id: pad-bri, hub: London, origin: PAD, destination: BRI, operator: GWR, toc: GW, length: medium}
+  - {id: eus-wfj, hub: London, origin: EUS, destination: WFJ, operator: London Northwestern, toc: LM, length: short}
+  - {id: lst-cbg, hub: London, origin: LST, destination: CBG, operator: Greater Anglia, toc: LE, length: medium, held_out: true}
+  - {id: myb-bmo, hub: London, origin: MYB, destination: BMO, operator: Chiltern, toc: CH, length: long, held_out: true}
+  - {id: bhm-eus, hub: Birmingham, origin: BHM, destination: EUS, operator: Avanti West Coast, toc: VT, length: medium}
+  - {id: ast-bhm, hub: Birmingham, origin: AST, destination: BHM, operator: West Midlands Railway, toc: LM, length: short}
+  - {id: bhm-man, hub: Birmingham, origin: BHM, destination: MAN, operator: CrossCountry, toc: XC, length: medium}
+  - {id: bhm-bri, hub: Birmingham, origin: BHM, destination: BRI, operator: CrossCountry, toc: XC, length: medium}
+  - {id: bhm-liv, hub: Birmingham, origin: BHM, destination: LIV, operator: London Northwestern, toc: LM, length: medium, held_out: true}
+  - {id: bhm-wvh, hub: Birmingham, origin: BHM, destination: WVH, operator: West Midlands Railway, toc: LM, length: short}
+  - {id: man-lds, hub: Manchester, origin: MAN, destination: LDS, operator: TransPennine Express, toc: TP, length: medium}
+  - {id: mcv-liv, hub: Manchester, origin: MCV, destination: LIV, operator: Northern, toc: NT, length: medium}
+  - {id: man-shf, hub: Manchester, origin: MAN, destination: SHF, operator: Northern, toc: NT, length: medium, held_out: true}
+  - {id: man-mia, hub: Manchester, origin: MAN, destination: MIA, operator: Northern, toc: NT, length: short}
+  - {id: man-glc, hub: Manchester, origin: MAN, destination: GLC, operator: TransPennine Express, toc: TP, length: long}
+  - {id: glc-eus, hub: Glasgow, origin: GLC, destination: EUS, operator: Avanti West Coast, toc: VT, length: long}
+  - {id: glq-edb, hub: Glasgow, origin: GLQ, destination: EDB, operator: ScotRail, toc: SR, length: medium}
+  - {id: glc-pyg, hub: Glasgow, origin: GLC, destination: PYG, operator: ScotRail, toc: SR, length: short}
+  - {id: glc-ayr, hub: Glasgow, origin: GLC, destination: AYR, operator: ScotRail, toc: SR, length: medium}
+  - {id: glq-abd, hub: Glasgow, origin: GLQ, destination: ABD, operator: ScotRail, toc: SR, length: long, held_out: true}
+  - {id: bri-cdf, hub: Bristol, origin: BRI, destination: CDF, operator: GWR, toc: GW, length: medium, held_out: true}
+  - {id: bri-bth, hub: Bristol, origin: BRI, destination: BTH, operator: GWR, toc: GW, length: short}
+  - {id: bri-wsm, hub: Bristol, origin: BRI, destination: WSM, operator: GWR, toc: GW, length: short, held_out: true}
+  # Legacy: not in the 25. Kept so the two-route stepping-stone code and its stress test still run.
+  - {id: ast-eus-via-bhm, origin: AST, destination: EUS, via_hub: BHM, legacy: true}
+  - {id: bhm-lds, origin: BHM, destination: LDS, legacy: true}
+  - {id: bhm-glc, origin: BHM, destination: GLC, legacy: true}
+
+# Interchange pairs: an inbound service (its own origin and destination) into an outbound route.
+interchanges:
+  - {hub: BHM, inbound_origin: BRI, inbound_destination: BHM, inbound_toc: XC, outbound: bhm-eus}
+  - {hub: BHM, inbound_origin: MAN, inbound_destination: BHM, inbound_toc: XC, outbound: bhm-liv}
+  - {hub: MAN, inbound_origin: LDS, inbound_destination: MAN, inbound_toc: TP, outbound: man-mia}
+  - {hub: BRI, inbound_origin: PAD, inbound_destination: BRI, inbound_toc: GW, outbound: bri-cdf}

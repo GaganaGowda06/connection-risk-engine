@@ -12,19 +12,37 @@ Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/
 - Capture stopgap: our own capture started on the Mac on 2026-10-24 and records the full GB Darwin feed (about 3.9 GB a day), with route filtering at parse time. Start `nohup caffeinate -i scripts/run_capture.sh > capture.log 2>&1 &`, check `pgrep -fl capture_darwin` and `tail logs/capture.log`, stop `pkill -INT -f scripts/capture_darwin.py`.
 
 ## Routes
-25 routes across 11 operators are planned. Stage 0 named only the seven held-out routes below; the other 18 and the operator count are not yet in the repo and are fixed in Stage 1.2. Nothing here is a trained-on claim until that list is written to config/routes.yaml.
+The 25-route table below was set by me on 2026-10-25 and is written to config/routes.yaml, the single source (route codes appear nowhere else in src/). 11 operators run on 10 Darwin TOC codes: London Northwestern and West Midlands Railway both use LM. Three older ids (ast-eus-via-bhm, bhm-lds, bhm-glc) stay in the file flagged `legacy` for the two-route stepping-stone code; they are not part of the 25 and are left out of coverage.
 
-| Route | Description | Held out |
-|---|---|---|
-| LST-CBG | London Liverpool Street to Cambridge | yes |
-| MYB-BMO | London Marylebone to Birmingham Moor Street | yes |
-| BHM-LIV | Birmingham New Street to Liverpool Lime Street | yes |
-| MAN-SHF | Manchester Piccadilly to Sheffield | yes |
-| GLQ-ABD | Glasgow Queen Street to Aberdeen | yes |
-| BRI-CDF | Bristol Temple Meads to Cardiff Central | yes |
-| BRI-WSM | Bristol Temple Meads to Weston-super-Mare | yes |
-| BHM-EUS, AST-BHM, BHM-MAN (in config today, trained on by the old champion) | Birmingham to Euston, Aston to Birmingham, Birmingham to Manchester | no |
-| 15 further routes | to be named in Stage 1.2 | no |
+| Hub | Route | Operator | Length | Set |
+|---|---|---|---|---|
+| London | EUS-MAN | Avanti West Coast | Long | Train |
+| London | KGX-LDS | LNER | Long | Train |
+| London | PAD-BRI | GWR | Medium | Train |
+| London | EUS-WFJ | London Northwestern | Short | Train |
+| London | LST-CBG | Greater Anglia | Medium | Held out |
+| London | MYB-BMO | Chiltern | Long | Held out |
+| Birmingham | BHM-EUS | Avanti West Coast | Medium | Train |
+| Birmingham | AST-BHM | West Midlands Railway | Short | Train |
+| Birmingham | BHM-MAN | CrossCountry | Medium | Train |
+| Birmingham | BHM-BRI | CrossCountry | Medium | Train |
+| Birmingham | BHM-LIV | London Northwestern | Medium | Held out |
+| Birmingham | BHM-WVH | West Midlands Railway | Short | Train |
+| Manchester | MAN-LDS | TransPennine Express | Medium | Train |
+| Manchester | MCV-LIV | Northern | Medium | Train |
+| Manchester | MAN-SHF | Northern | Medium | Held out |
+| Manchester | MAN-MIA | Northern | Short | Train |
+| Manchester | MAN-GLC | TransPennine Express | Long | Train |
+| Glasgow | GLC-EUS | Avanti West Coast | Long | Train |
+| Glasgow | GLQ-EDB | ScotRail | Medium | Train |
+| Glasgow | GLC-PYG | ScotRail | Short | Train |
+| Glasgow | GLC-AYR | ScotRail | Medium | Train |
+| Glasgow | GLQ-ABD | ScotRail | Long | Held out |
+| Bristol | BRI-CDF | GWR | Medium | Held out |
+| Bristol | BRI-BTH | GWR | Short | Train |
+| Bristol | BRI-WSM | GWR | Short | Held out |
+
+Interchange pairs (also in config/routes.yaml): BHM (BRI-BHM CrossCountry into BHM-EUS; MAN-BHM CrossCountry into BHM-LIV), MAN (LDS-MAN TransPennine into MAN-MIA), BRI (PAD-BRI into BRI-CDF).
 
 Held-out routes never enter training, tuning or calibration folds, and no feature is fitted on them.
 
@@ -37,7 +55,12 @@ Done means: at least 20 routes, 5 operators, short, medium and long journeys and
 Progress (details and evidence in DECISIONS.md, 2026-10-24):
 - 1.1 done: archive probe and mirror.
 - 1.2 done: mirror of the whole window (4,342 files) plus six boundary and clock-change days, manifest and integrity check; network-wide streaming extraction to Parquet (schedules, schedule_points, stop_updates, stop_actuals, associations, deactivations) with the split column; TIPLOC to CRS from open files; one pandera cleaning module run on 187 service dates; coverage; HSP spot-check (730 of 730 arrivals and departures exact on 50 trains of three held-out routes); weather source recommendation (Open-Meteo, not ingested).
-- 1.3 to do: name the other 11 routes of the 25 (config/routes.yaml is the single source; 14 are in it, 7 held out), parse MSN and TSI for minimum connection times, explain the sequence flags on bri-cdf, bri-wsm, bhm-glc and man-shf, fetch the rest of 2026-10-24 after the day ends, and load planned-closure and engineering information if a source is found.
+- 1.3 done (2026-10-25): 25-route table in config/routes.yaml; coverage (reports/stage1_coverage.csv); sequence-flag cause found and a general resolution rule applied (DECISIONS.md). Still to do, not blocking Stage 2 baselines: parse MSN and TSI for minimum connection times (needed before Stage 4), the rest of 2026-10-24, planned-closure and engineering information if a source is found.
+- Stage 1 done-means, checked 2026-10-25:
+  - Test 1 (breadth): MET. 25 routes, 11 operators (10 TOC codes), 5 hubs, short, medium and long, four interchange pairs; every route has trains in all 7 window months (reports/stage1_coverage.csv). Thin: mcv-liv (21 trains in its quietest month), man-glc (54).
+  - Test 7 (data quality): MET with a caveat. The same pandera checks run on every route and the network (reports/stage1_cleaning.csv), a test fails on any CRS or route literal in the clean code. PLAN set no numeric pass threshold, so "passes" means checked and published; residual flags: duplicates 19,608 of 1.78 billion updates, station matching 100% on route services, impossible negative dwell 31,443 of 4.76 million stops network-wide (bri-wsm 175 of 7,864 is the highest route), 2.4% of passenger schedules are missing data.
+  - Test 8 (trust): NOT MET. Open: the community archive states no licence or terms (only that it collects the RDM Push Port product); MIDAS and Meteostat terms and coverage unverified; weather licence for the chosen source not yet accepted. Verified: station list ODbL 1.0, NaPTAN OGL, Open-Meteo CC-BY 4.0 non-commercial for development. Closing needs my call on the archive terms (accept, or ask the archive owner).
+  - So Stage 1 is not closed and GOAL.md's last line stays at Stage 1.
 Weather: Open-Meteo (ERA5) is the recommended history source (free for development, paid key before commercial use, newest 5 days null, modelled not observed); not ingested until Stage 3 needs it.
 Extract layout: data/interim/pport/<table>/service_date=D/<hour file>.parquet, read model data only through rail_risk.ingest.pport_extract.train_pool_table (train_pool rows only).
 

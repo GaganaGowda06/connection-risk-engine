@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, SecretStr, field_validator, model_validator
@@ -18,6 +19,11 @@ class Route(BaseModel):
     destination: str
     via_hub: str | None = None
     held_out: bool = False
+    legacy: bool = False
+    hub: str | None = None
+    operator: str | None = None
+    toc: str | None = None
+    length: Literal["short", "medium", "long"] | None = None
 
     @field_validator("id")
     @classmethod
@@ -44,10 +50,38 @@ class Route(BaseModel):
         return self
 
 
+class Interchange(BaseModel):
+    """An inbound service (its own end stations) connecting into an outbound route."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    hub: str
+    inbound_origin: str
+    inbound_destination: str
+    inbound_toc: str
+    outbound: str
+
+    @field_validator("hub", "inbound_origin", "inbound_destination")
+    @classmethod
+    def _crs_code(cls, v: str) -> str:
+        if not CRS_PATTERN.fullmatch(v):
+            raise ValueError(f"CRS code must be three uppercase letters, got {v!r}")
+        return v
+
+
 class RouteSet(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     routes: list[Route]
+    interchanges: list[Interchange] = []
+
+    @model_validator(mode="after")
+    def _interchanges_name_known_routes(self) -> "RouteSet":
+        known = {r.id for r in self.routes}
+        unknown = sorted({i.outbound for i in self.interchanges} - known)
+        if unknown:
+            raise ValueError(f"interchange outbound routes not in the table: {', '.join(unknown)}")
+        return self
 
     @field_validator("routes")
     @classmethod

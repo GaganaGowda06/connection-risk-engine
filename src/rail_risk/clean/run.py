@@ -115,6 +115,8 @@ def process_day(root: Path, ssd: date, specs: list[ck.RouteSpec], tiploc_crs: pd
             "impossible_arrival_before_prev_departure",
             "impossible_negative_dwell",
             "impossible_schedule_time_decreasing",
+            "resolution_negative_dwell",
+            "resolution_arrival_before_prev_departure",
         ):
             s = seq.get(name)
             if s is None:
@@ -140,18 +142,22 @@ def process_day(root: Path, ssd: date, specs: list[ck.RouteSpec], tiploc_crs: pd
 
     month = str(ssd)[:7]
     route_cov = []
+    toc_of = dict(zip(latest["rid"], latest["toc"].astype("string").fillna("none"), strict=True))
     for route, rids in members.items():
-        mine = classes[classes["rid"].isin(rids) & (classes["class"] != "not_passenger")]
-        route_cov.append(
-            {
-                "route": route,
-                "month": month,
-                "ssd": str(ssd),
-                "scheduled": len(mine),
-                "ran": int((mine["class"] == "closure_ran_with_actuals").sum()),
-                "cancelled": int(mine["class"].str.startswith("closure_cancel").sum()),
-            }
-        )
+        mine = classes[classes["rid"].isin(rids) & (classes["class"] != "not_passenger")].copy()
+        mine["toc"] = mine["rid"].map(toc_of)
+        for toc, grp in mine.groupby("toc"):
+            route_cov.append(
+                {
+                    "route": route,
+                    "toc": toc,
+                    "month": month,
+                    "ssd": str(ssd),
+                    "scheduled": len(grp),
+                    "ran": int((grp["class"] == "closure_ran_with_actuals").sum()),
+                    "cancelled": int(grp["class"].str.startswith("closure_cancel").sum()),
+                }
+            )
     train_rids = set(classes.loc[classes["class"] != "not_passenger", "rid"])
     toc = latest[latest["rid"].isin(train_rids)].groupby("toc", dropna=False).size()
     toc_cov = [

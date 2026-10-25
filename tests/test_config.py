@@ -54,30 +54,32 @@ def test_non_mapping_yaml(tmp_path, text):
         load_routes(p)
 
 
-def test_shipped_routes_load():
-    routes = load_routes(Path(__file__).parent.parent / "config" / "routes.yaml")
-    assert [r.id for r in routes.routes] == [
-        "bhm-eus",
-        "ast-bhm",
-        "bhm-man",
-        "ast-eus-via-bhm",
-        "bhm-lds",
-        "bhm-bri",
-        "bhm-liv",
-        "bhm-glc",
-        "lst-cbg",
-        "myb-bmo",
-        "man-shf",
-        "glq-abd",
-        "bri-cdf",
-        "bri-wsm",
-    ]
+ROUTES_FILE = Path(__file__).parent.parent / "config" / "routes.yaml"
 
 
-def test_held_out_routes_are_flagged():
-    routes = load_routes(Path(__file__).parent.parent / "config" / "routes.yaml").routes
-    held = {r.id for r in routes if r.held_out}
-    assert held == {"bhm-liv", "lst-cbg", "myb-bmo", "man-shf", "glq-abd", "bri-cdf", "bri-wsm"}
+def test_shipped_table_has_25_routes_11_operators_and_the_held_out_set():
+    routes = load_routes(ROUTES_FILE)
+    table = [r for r in routes.routes if not r.legacy]
+    assert len(table) == 25
+    assert len({r.operator for r in table}) == 11
+    assert {r.hub for r in table} == {"London", "Birmingham", "Manchester", "Glasgow", "Bristol"}
+    assert {r.length for r in table} == {"short", "medium", "long"}
+    assert {r.id for r in table if r.held_out} == {
+        "lst-cbg", "myb-bmo", "bhm-liv", "man-shf", "glq-abd", "bri-cdf", "bri-wsm",
+    }  # fmt: skip
+    assert all(r.operator and r.toc and r.length and r.hub for r in table)
+
+
+def test_legacy_routes_are_flagged_and_outside_the_table():
+    routes = load_routes(ROUTES_FILE).routes
+    assert {r.id for r in routes if r.legacy} == {"ast-eus-via-bhm", "bhm-lds", "bhm-glc"}
+
+
+def test_interchanges_point_at_table_routes():
+    routes = load_routes(ROUTES_FILE)
+    ids = {r.id for r in routes.routes if not r.legacy}
+    assert len(routes.interchanges) == 4
+    assert {i.outbound for i in routes.interchanges} <= ids
 
 
 def test_secrets_masked_in_repr():
