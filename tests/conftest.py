@@ -7,6 +7,9 @@ def spark():
 
     session = build_spark("rail-risk-tests", cores=2, driver_memory="1g")
     session.conf.set("spark.sql.shuffle.partitions", "4")
+    # a broadcast join of real history in a 1 GB driver fails with "Not enough memory to build and
+    # broadcast the table" when the machine is under memory pressure (the flaky test of Stage 5)
+    session.conf.set("spark.sql.autoBroadcastJoinThreshold", "-1")
     yield session
     session.stop()
 
