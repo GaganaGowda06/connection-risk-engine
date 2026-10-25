@@ -1,0 +1,739 @@
+{
+ "SECOND_SCORING_OF_THE_TEST_BLOCK": true,
+ "run_id": "1e197857e96a41e8ad5d350d204307ed",
+ "method": "aci_route",
+ "gamma": 0.05,
+ "test_primary_no_history": {
+  "rows": 9713,
+  "static": {
+   "overall": 0.8223000102954803,
+   "mean_width": 10.245920199555389,
+   "overall_ci": [
+    0.8057006256633792,
+    0.8371435131559234
+   ],
+   "15": {
+    "coverage": 0.8233477455219271,
+    "ci": [
+     0.8043613707165109,
+     0.8420367943820002
+    ],
+    "mean_width": 7.314356097482861,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.5824175824175825
+   },
+   "60": {
+    "coverage": 0.8116121062384187,
+    "ci": [
+     0.7986230636833046,
+     0.8238104916763453
+    ],
+    "mean_width": 11.140685089057309,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.6813186813186813
+   },
+   "by_horizon": {
+    "5": 0.7770228536133416,
+    "15": 0.8233477455219271,
+    "30": 0.8103767757875232,
+    "60": 0.8116121062384187,
+    "90": 0.8449660284126004,
+    "120": 0.8665018541409147
+   }
+  },
+  "adaptive": {
+   "overall": 0.8026356429527437,
+   "mean_width": 10.086172696507731,
+   "overall_ci": [
+    0.7877339938265459,
+    0.8171574809980447
+   ],
+   "15": {
+    "coverage": 0.8072884496602841,
+    "ci": [
+     0.7952285582119052,
+     0.8188757807078417
+    ],
+    "mean_width": 7.102214314930485,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.7912087912087912
+   },
+   "60": {
+    "coverage": 0.8011117974058061,
+    "ci": [
+     0.7887746560242502,
+     0.8137891504635812
+    ],
+    "mean_width": 11.456670658637695,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.7912087912087912
+   },
+   "by_horizon": {
+    "5": 0.7961704756022236,
+    "15": 0.8072884496602841,
+    "30": 0.8035824583075973,
+    "60": 0.8011117974058061,
+    "90": 0.8023471278567017,
+    "120": 0.8053152039555006
+   }
+  },
+  "per_route": [
+   {
+    "route": "bhm-liv",
+    "horizon_min": 15,
+    "n": 182,
+    "static_coverage": 0.5824175824175825,
+    "adaptive_coverage": 0.7912087912087912,
+    "static_width": 6.856010938180798,
+    "adaptive_width": 10.296950046860355
+   },
+   {
+    "route": "bhm-liv",
+    "horizon_min": 60,
+    "n": 182,
+    "static_coverage": 0.6813186813186813,
+    "adaptive_coverage": 0.7912087912087912,
+    "static_width": 11.774117179002207,
+    "adaptive_width": 14.310354797958128
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 15,
+    "n": 237,
+    "static_coverage": 0.8312236286919831,
+    "adaptive_coverage": 0.8016877637130801,
+    "static_width": 7.616055655403076,
+    "adaptive_width": 7.3655109774733125
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 60,
+    "n": 237,
+    "static_coverage": 0.7172995780590717,
+    "adaptive_coverage": 0.7932489451476793,
+    "static_width": 11.921065708680233,
+    "adaptive_width": 14.60325506994551
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 15,
+    "n": 284,
+    "static_coverage": 0.8838028169014085,
+    "adaptive_coverage": 0.8098591549295775,
+    "static_width": 6.832181305397656,
+    "adaptive_width": 5.637186546530766
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 60,
+    "n": 284,
+    "static_coverage": 0.8204225352112676,
+    "adaptive_coverage": 0.795774647887324,
+    "static_width": 10.139579919722264,
+    "adaptive_width": 9.705533892724036
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 15,
+    "n": 105,
+    "static_coverage": 0.9619047619047619,
+    "adaptive_coverage": 0.8380952380952381,
+    "static_width": 9.237488071996562,
+    "adaptive_width": 6.2233774712093695
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 60,
+    "n": 105,
+    "static_coverage": 0.9047619047619048,
+    "adaptive_coverage": 0.819047619047619,
+    "static_width": 12.755043583120678,
+    "adaptive_width": 11.181631807467078
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 15,
+    "n": 281,
+    "static_coverage": 0.7686832740213523,
+    "adaptive_coverage": 0.800711743772242,
+    "static_width": 6.673107937817235,
+    "adaptive_width": 7.423129337522246
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 60,
+    "n": 281,
+    "static_coverage": 0.8078291814946619,
+    "adaptive_coverage": 0.800711743772242,
+    "static_width": 9.029953381623848,
+    "adaptive_width": 10.53696838721765
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 15,
+    "n": 337,
+    "static_coverage": 0.8308605341246291,
+    "adaptive_coverage": 0.8041543026706232,
+    "static_width": 8.297070825854307,
+    "adaptive_width": 7.957275587785569
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 60,
+    "n": 337,
+    "static_coverage": 0.8367952522255193,
+    "adaptive_coverage": 0.8041543026706232,
+    "static_width": 11.842983292655731,
+    "adaptive_width": 10.99497969210453
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 15,
+    "n": 193,
+    "static_coverage": 0.9430051813471503,
+    "adaptive_coverage": 0.8238341968911918,
+    "static_width": 6.257053904731597,
+    "adaptive_width": 4.439881528826365
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 60,
+    "n": 193,
+    "static_coverage": 0.9481865284974094,
+    "adaptive_coverage": 0.8134715025906736,
+    "static_width": 12.026760188383887,
+    "adaptive_width": 9.773339550072068
+   }
+  ]
+ },
+ "test_state_from_validation": {
+  "rows": 9713,
+  "static": {
+   "overall": 0.8223000102954803,
+   "mean_width": 10.245920199555389,
+   "overall_ci": [
+    0.8057006256633792,
+    0.8371435131559234
+   ],
+   "15": {
+    "coverage": 0.8233477455219271,
+    "ci": [
+     0.8043613707165109,
+     0.8420367943820002
+    ],
+    "mean_width": 7.314356097482861,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.5824175824175825
+   },
+   "60": {
+    "coverage": 0.8116121062384187,
+    "ci": [
+     0.7986230636833046,
+     0.8238104916763453
+    ],
+    "mean_width": 11.140685089057309,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.6813186813186813
+   },
+   "by_horizon": {
+    "5": 0.7770228536133416,
+    "15": 0.8233477455219271,
+    "30": 0.8103767757875232,
+    "60": 0.8116121062384187,
+    "90": 0.8449660284126004,
+    "120": 0.8665018541409147
+   }
+  },
+  "adaptive": {
+   "overall": 0.7980026768248739,
+   "mean_width": 10.04744715846148,
+   "overall_ci": [
+    0.7840276704740956,
+    0.8124614435533621
+   ],
+   "15": {
+    "coverage": 0.8004941321803583,
+    "ci": [
+     0.7909247558874211,
+     0.8097194415925165
+    ],
+    "mean_width": 6.871452111028481,
+    "worst_route": "bri-cdf",
+    "worst_route_coverage": 0.7932489451476793
+   },
+   "60": {
+    "coverage": 0.798023471278567,
+    "ci": [
+     0.783589740044542,
+     0.8113948919449901
+    ],
+    "mean_width": 11.734495798333255,
+    "worst_route": "bri-wsm",
+    "worst_route_coverage": 0.7887323943661971
+   },
+   "by_horizon": {
+    "5": 0.7930821494749846,
+    "15": 0.8004941321803583,
+    "30": 0.7986411365040148,
+    "60": 0.798023471278567,
+    "90": 0.7974058060531192,
+    "120": 0.8003708281829419
+   }
+  },
+  "per_route": [
+   {
+    "route": "bhm-liv",
+    "horizon_min": 15,
+    "n": 182,
+    "static_coverage": 0.5824175824175825,
+    "adaptive_coverage": 0.8021978021978022,
+    "static_width": 6.856010938180798,
+    "adaptive_width": 11.053702363393922
+   },
+   {
+    "route": "bhm-liv",
+    "horizon_min": 60,
+    "n": 182,
+    "static_coverage": 0.6813186813186813,
+    "adaptive_coverage": 0.8021978021978022,
+    "static_width": 11.774117179002207,
+    "adaptive_width": 14.252681806184277
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 15,
+    "n": 237,
+    "static_coverage": 0.8312236286919831,
+    "adaptive_coverage": 0.7932489451476793,
+    "static_width": 7.616055655403076,
+    "adaptive_width": 6.990915152593548
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 60,
+    "n": 237,
+    "static_coverage": 0.7172995780590717,
+    "adaptive_coverage": 0.8016877637130801,
+    "static_width": 11.921065708680233,
+    "adaptive_width": 15.282467591603936
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 15,
+    "n": 284,
+    "static_coverage": 0.8838028169014085,
+    "adaptive_coverage": 0.7992957746478874,
+    "static_width": 6.832181305397656,
+    "adaptive_width": 5.359862759417768
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 60,
+    "n": 284,
+    "static_coverage": 0.8204225352112676,
+    "adaptive_coverage": 0.7887323943661971,
+    "static_width": 10.139579919722264,
+    "adaptive_width": 9.803607353339414
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 15,
+    "n": 105,
+    "static_coverage": 0.9619047619047619,
+    "adaptive_coverage": 0.8,
+    "static_width": 9.237488071996562,
+    "adaptive_width": 5.393754937505628
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 60,
+    "n": 105,
+    "static_coverage": 0.9047619047619048,
+    "adaptive_coverage": 0.8095238095238095,
+    "static_width": 12.755043583120678,
+    "adaptive_width": 10.59534910302129
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 15,
+    "n": 281,
+    "static_coverage": 0.7686832740213523,
+    "adaptive_coverage": 0.797153024911032,
+    "static_width": 6.673107937817235,
+    "adaptive_width": 6.934975512736742
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 60,
+    "n": 281,
+    "static_coverage": 0.8078291814946619,
+    "adaptive_coverage": 0.800711743772242,
+    "static_width": 9.029953381623848,
+    "adaptive_width": 11.87733915129586
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 15,
+    "n": 337,
+    "static_coverage": 0.8308605341246291,
+    "adaptive_coverage": 0.8041543026706232,
+    "static_width": 8.297070825854307,
+    "adaptive_width": 7.757724157119483
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 60,
+    "n": 337,
+    "static_coverage": 0.8367952522255193,
+    "adaptive_coverage": 0.7952522255192879,
+    "static_width": 11.842983292655731,
+    "adaptive_width": 11.069318336424123
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 15,
+    "n": 193,
+    "static_coverage": 0.9430051813471503,
+    "adaptive_coverage": 0.8082901554404145,
+    "static_width": 6.257053904731597,
+    "adaptive_width": 4.1690870171591605
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 60,
+    "n": 193,
+    "static_coverage": 0.9481865284974094,
+    "adaptive_coverage": 0.7979274611398963,
+    "static_width": 12.026760188383887,
+    "adaptive_width": 9.417549557052695
+   }
+  ]
+ },
+ "p_late_unchanged": {
+  "model_15": {
+   "brier": 0.02086120775181146,
+   "brier_lo": 0.01473355272314992,
+   "brier_hi": 0.027511379633691935,
+   "ece": 0.012845616921047534,
+   "ece_lo": 0.00977058490934658,
+   "ece_hi": 0.020108329822481
+  },
+  "model_60": {
+   "brier": 0.040337452332719057,
+   "brier_lo": 0.03027967158644266,
+   "brier_hi": 0.05118773735906471,
+   "ece": 0.011666146263946733,
+   "ece_lo": 0.0105724542911758,
+   "ece_hi": 0.025367281767487954
+  },
+  "historical_history_15": {
+   "brier": 0.050806433749249,
+   "brier_lo": 0.03385602353907049,
+   "brier_hi": 0.0684010166846343,
+   "ece": 0.017066188599401816,
+   "ece_lo": 0.00862511540961801,
+   "ece_hi": 0.03727732756279978
+  },
+  "historical_history_60": {
+   "brier": 0.050806433749249,
+   "brier_lo": 0.034106336953466744,
+   "brier_hi": 0.06796065914247257,
+   "ece": 0.017066188599401816,
+   "ece_lo": 0.007604082516082201,
+   "ece_hi": 0.03690643721389695
+  },
+  "historical_cold_15": {
+   "brier": 0.051086290808474356,
+   "brier_lo": 0.03496634189211051,
+   "brier_hi": 0.06946000158336779,
+   "ece": 0.015397009053435384,
+   "ece_lo": 0.001123808100643997,
+   "ece_hi": 0.034103456723968965
+  },
+  "historical_cold_60": {
+   "brier": 0.0510862908084743,
+   "brier_lo": 0.034074657140159406,
+   "brier_hi": 0.0690689212714706,
+   "ece": 0.015397009053435384,
+   "ece_lo": 0.001136064716466658,
+   "ece_hi": 0.03513821522336186
+  },
+  "brier_paired_vs_historical_history": {
+   "15": {
+    "diff": -0.029945225997437545,
+    "lo": -0.04364648692953065,
+    "hi": -0.01572380803030158
+   },
+   "60": {
+    "diff": -0.010468981416529974,
+    "lo": -0.01863018919256059,
+    "hi": -0.0038566953802671184
+   }
+  }
+ },
+ "february_no_history": {
+  "rows": 35871,
+  "static": {
+   "overall": 0.8113517883527083,
+   "mean_width": 8.840241206996287,
+   "overall_ci": [
+    0.8014455302148009,
+    0.8229341083056494
+   ],
+   "15": {
+    "coverage": 0.825556113062385,
+    "ci": [
+     0.8107878414959594,
+     0.8384974698765646
+    ],
+    "mean_width": 6.367758155684483,
+    "worst_route": "lst-cbg",
+    "worst_route_coverage": 0.626991565135895
+   },
+   "60": {
+    "coverage": 0.8039478086316494,
+    "ci": [
+     0.7906707350745908,
+     0.8186520332202487
+    ],
+    "mean_width": 9.74190309077284,
+    "worst_route": "lst-cbg",
+    "worst_route_coverage": 0.6223055295220243
+   },
+   "by_horizon": {
+    "5": 0.7976250209065061,
+    "15": 0.825556113062385,
+    "30": 0.8120086971065396,
+    "60": 0.8039478086316494,
+    "90": 0.8089662094345935,
+    "120": 0.8200066912010706
+   }
+  },
+  "adaptive": {
+   "overall": 0.8008140280449388,
+   "mean_width": 8.885773431907657,
+   "overall_ci": [
+    0.7942118014366427,
+    0.8071208851116868
+   ],
+   "15": {
+    "coverage": 0.8019735741762837,
+    "ci": [
+     0.7926142120986863,
+     0.8118113612448701
+    ],
+    "mean_width": 6.109738324295497,
+    "worst_route": "lst-cbg",
+    "worst_route_coverage": 0.7975632614807873
+   },
+   "60": {
+    "coverage": 0.8002676480428237,
+    "ci": [
+     0.7911422553027354,
+     0.8089095478101048
+    ],
+    "mean_width": 10.058393286147815,
+    "worst_route": "bhm-liv",
+    "worst_route_coverage": 0.7969613259668509
+   },
+   "by_horizon": {
+    "5": 0.7996320454925573,
+    "15": 0.8019735741762837,
+    "30": 0.8018063221274461,
+    "60": 0.8002676480428237,
+    "90": 0.8004349280695885,
+    "120": 0.8007694881231181
+   }
+  },
+  "per_route": [
+   {
+    "route": "bhm-liv",
+    "horizon_min": 15,
+    "n": 724,
+    "static_coverage": 0.888121546961326,
+    "adaptive_coverage": 0.8024861878453039,
+    "static_width": 6.15495130156598,
+    "adaptive_width": 4.810855896976549
+   },
+   {
+    "route": "bhm-liv",
+    "horizon_min": 60,
+    "n": 724,
+    "static_coverage": 0.861878453038674,
+    "adaptive_coverage": 0.7969613259668509,
+    "static_width": 10.076822080454454,
+    "adaptive_width": 8.903271623709049
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 15,
+    "n": 940,
+    "static_coverage": 0.7936170212765957,
+    "adaptive_coverage": 0.801063829787234,
+    "static_width": 6.397999918145008,
+    "adaptive_width": 7.127413453587356
+   },
+   {
+    "route": "bri-cdf",
+    "horizon_min": 60,
+    "n": 940,
+    "static_coverage": 0.7702127659574468,
+    "adaptive_coverage": 0.8021276595744681,
+    "static_width": 9.508184248889764,
+    "adaptive_width": 10.445282928957466
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 15,
+    "n": 1217,
+    "static_coverage": 0.876746096959737,
+    "adaptive_coverage": 0.799506984387839,
+    "static_width": 5.69942959572766,
+    "adaptive_width": 4.618237904521838
+   },
+   {
+    "route": "bri-wsm",
+    "horizon_min": 60,
+    "n": 1216,
+    "static_coverage": 0.84375,
+    "adaptive_coverage": 0.7993421052631579,
+    "static_width": 8.19952214477432,
+    "adaptive_width": 8.181609678661516
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 15,
+    "n": 306,
+    "static_coverage": 0.954248366013072,
+    "adaptive_coverage": 0.8104575163398693,
+    "static_width": 10.05494659325696,
+    "adaptive_width": 7.378696930491206
+   },
+   {
+    "route": "glq-abd",
+    "horizon_min": 60,
+    "n": 306,
+    "static_coverage": 0.8725490196078431,
+    "adaptive_coverage": 0.803921568627451,
+    "static_width": 14.580741372634929,
+    "adaptive_width": 13.340875262489368
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 15,
+    "n": 1067,
+    "static_coverage": 0.626991565135895,
+    "adaptive_coverage": 0.7975632614807873,
+    "static_width": 5.589724665674397,
+    "adaptive_width": 8.109430426580207
+   },
+   {
+    "route": "lst-cbg",
+    "horizon_min": 60,
+    "n": 1067,
+    "static_coverage": 0.6223055295220243,
+    "adaptive_coverage": 0.7975632614807873,
+    "static_width": 8.791152918658826,
+    "adaptive_width": 12.149172161678498
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 15,
+    "n": 939,
+    "static_coverage": 0.8189563365282215,
+    "adaptive_coverage": 0.8008519701810437,
+    "static_width": 7.4197394757083535,
+    "adaptive_width": 7.2861555318884905
+   },
+   {
+    "route": "man-shf",
+    "horizon_min": 60,
+    "n": 939,
+    "static_coverage": 0.8104366347177849,
+    "adaptive_coverage": 0.8008519701810437,
+    "static_width": 10.506733640410227,
+    "adaptive_width": 10.689276592427605
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 15,
+    "n": 786,
+    "static_coverage": 0.9541984732824428,
+    "adaptive_coverage": 0.8104325699745547,
+    "static_width": 5.926374409599924,
+    "adaptive_width": 3.784424968246672
+   },
+   {
+    "route": "myb-bmo",
+    "horizon_min": 60,
+    "n": 786,
+    "static_coverage": 0.9414758269720102,
+    "adaptive_coverage": 0.8040712468193384,
+    "static_width": 10.592207959044028,
+    "adaptive_width": 8.693381475103864
+   }
+  ]
+ },
+ "february_p_late_unchanged": {
+  "model_15": {
+   "brier": 0.013081547455956449,
+   "brier_lo": 0.010301271687394368,
+   "brier_hi": 0.015813474336495083,
+   "ece": 0.004966898193223022,
+   "ece_lo": 0.0033506200330121454,
+   "ece_hi": 0.008848741100766546
+  },
+  "model_60": {
+   "brier": 0.027576492454243727,
+   "brier_lo": 0.021622185219551383,
+   "brier_hi": 0.03368202388104186,
+   "ece": 0.0074470935614751104,
+   "ece_lo": 0.004803372384217343,
+   "ece_hi": 0.01387107288321194
+  },
+  "historical_history_15": {
+   "brier": 0.0382462664591499,
+   "brier_lo": 0.03116697477667824,
+   "brier_hi": 0.046076259223225356,
+   "ece": 0.031196156599267916,
+   "ece_lo": 0.022233482612721175,
+   "ece_hi": 0.03930514201503619
+  },
+  "historical_history_60": {
+   "brier": 0.038252262798000126,
+   "brier_lo": 0.03139975639364741,
+   "brier_hi": 0.045108233313991546,
+   "ece": 0.031193179818092335,
+   "ece_lo": 0.023231903886893477,
+   "ece_hi": 0.039223305981375224
+  },
+  "historical_cold_15": {
+   "brier": 0.037496205162959394,
+   "brier_lo": 0.030008142258013078,
+   "brier_hi": 0.045097812247416526,
+   "ece": 0.03116766858125986,
+   "ece_lo": 0.022346358670469458,
+   "ece_hi": 0.03985721577596888
+  },
+  "historical_cold_60": {
+   "brier": 0.03750167801529999,
+   "brier_lo": 0.03038394954652867,
+   "brier_hi": 0.04555995594730787,
+   "ece": 0.031161317591784088,
+   "ece_lo": 0.021810062495888655,
+   "ece_hi": 0.03942110897356543
+  },
+  "brier_paired_vs_historical_history": {
+   "15": {
+    "diff": -0.025164719003193437,
+    "lo": -0.03155997573121553,
+    "hi": -0.01939835214987281
+   },
+   "60": {
+    "diff": -0.010675770343756417,
+    "lo": -0.013959474843370432,
+    "hi": -0.007719097012364175
+   }
+  }
+ }
+}
