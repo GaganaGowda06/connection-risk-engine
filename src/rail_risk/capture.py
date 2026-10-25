@@ -83,3 +83,34 @@ class GapDetector:
             return None
         jump = (kafka_ts_ms - previous) / 1000
         return jump if jump > self.threshold_s else None
+
+
+class OffsetTracker:
+    """Follows the Kafka offsets seen per partition and reports skips and replays.
+
+    A skip means offsets the broker no longer held (a reset, or a restart after the retention
+    window), so those messages were never captured. A replay means offsets already written, as
+    after a rebalance that resumes from the last commit; the parser drops them on
+    (partition, offset), so a replay can never double count.
+    """
+
+    def __init__(self) -> None:
+        self._next: dict[int, int] = {}
+
+    def seed(self, partition: int, committed: int | None) -> None:
+        """Start from the committed offset; a negative value (none committed) is ignored."""
+        if committed is not None and committed >= 0:
+            self._next.setdefault(partition, committed)
+
+    def check(self, partition: int, offset: int) -> tuple[int, int]:
+        """(skipped, replayed) offsets for this message; (0, 0) when it is the expected one."""
+        expected = self._next.get(partition)
+        self._next[partition] = max(offset + 1, expected or 0)
+        if expected is None or offset == expected:
+            return 0, 0
+        if offset > expected:
+            return offset - expected, 0
+        return 0, expected - offset
+
+    def next_offset(self, partition: int, default: int) -> int:
+        return self._next.get(partition, default)

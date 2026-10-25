@@ -36,6 +36,16 @@ def write_gz(path: Path, lines: list[bytes], members: int = 1) -> None:
             fh.write(gzip.compress(b"\n".join(lines[i : i + per]) + b"\n"))
 
 
+def shifted(lines: list[bytes], by: int) -> list[bytes]:
+    """The same messages at later Kafka offsets, as a different hour would carry them."""
+    out = []
+    for raw in lines:
+        rec = json.loads(raw)
+        rec["offset"] += by
+        out.append(json.dumps(rec).encode())
+    return out
+
+
 def tables(interim: Path, name: str) -> pd.DataFrame:
     files = list((interim / "darwin" / name).glob("*/*.parquet"))
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
@@ -248,7 +258,7 @@ def test_schedule_order_restored_when_json_groups_ip_and_pp(tmp_path):
 def test_incremental_parse_skips_current_hour_and_finished_files(tmp_path):
     raw = tmp_path / "raw"
     write_gz(raw / "2026-10-15" / "10.jsonl.gz", fixture_lines())
-    write_gz(raw / "2026-10-15" / "11.jsonl.gz", fixture_lines())
+    write_gz(raw / "2026-10-15" / "11.jsonl.gz", shifted(fixture_lines(), 10_000))
     interim = tmp_path / "interim"
     manifest = DarwinManifest(interim / "m.sqlite")
     now = datetime(2026, 10, 15, 11, 30, tzinfo=UTC)
@@ -286,3 +296,21 @@ def test_status_lines_show_parse_totals_without_secrets(tmp_path):
     manifest.close()
     text = "\n".join(darwin_status(raw, interim))
     assert "parsed: 1 files" in text and "schedules=2" in text
+
+
+def test_replayed_batch_in_a_later_file_is_not_counted_twice(tmp_path):
+    """A reconnect that resumes from an old commit writes offsets again into the next file."""
+    raw = tmp_path / "raw"
+    base = fixture_lines()
+    write_gz(raw / "2026-10-15" / "10.jsonl.gz", base)
+    replay = base[: len(base) // 2]  # the second half of hour 10 is delivered again
+    fresh = shifted(base, 10_000)
+    write_gz(raw / "2026-10-15" / "11.jsonl.gz", replay + fresh)
+    interim = tmp_path / "interim"
+    manifest = DarwinManifest(interim / "m.sqlite")
+    results = parse_directory(raw, interim, manifest, now=datetime(2026, 10, 15, 12, 1, tzinfo=UTC))
+    second = {r.key: r for r in results}["2026-10-15T11"]
+    assert second.stats.duplicates == len(replay)
+    events = tables(interim, "darwin_events")
+    _, one_interim = run(tmp_path / "one", base)
+    assert len(events) == 2 * len(tables(one_interim, "darwin_events"))

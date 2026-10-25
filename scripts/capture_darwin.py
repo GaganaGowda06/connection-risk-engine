@@ -1,8 +1,11 @@
 """Capture the Darwin Push Port Kafka feed to hourly gzip JSONL under data/raw/darwin.
 
-Resumable: offsets are committed to the consumer group after each hourly file is closed and
-on shutdown. A restart resumes from the committed offset; with no committed offset it starts at
-the latest message. Anything older than the topic's retention is lost.
+Resumable: offsets are committed to the consumer group every minute (after the file is flushed)
+and on shutdown. A restart resumes from the committed offset. If that offset is no longer on the
+broker, or none is committed, the consumer starts at the earliest offset the broker still holds
+(auto.offset.reset=earliest) and logs the offsets it could not recover. The broker's window is
+short (measured, not documented), so a long outage still loses data; the daily loss check
+backfills it from the archive.
 """
 
 import argparse
@@ -11,9 +14,9 @@ import sys
 import time
 from pathlib import Path
 
-from confluent_kafka import Consumer, KafkaError, KafkaException
+from confluent_kafka import Consumer, KafkaError, KafkaException, TopicPartition
 
-from rail_risk.capture import GapDetector, HourlyWriter, strip_message
+from rail_risk.capture import GapDetector, HourlyWriter, OffsetTracker, strip_message
 from rail_risk.config import Settings
 from rail_risk.logging import configure_logging, get_logger
 
@@ -73,6 +76,12 @@ def main() -> int:
         # librdkafka reconnects with backoff on its own; this only logs what it reports
         log.warning("kafka_client_error", code=err.name(), fatal=err.fatal())
 
+    def on_assign(cons: Consumer, parts: list) -> None:
+        # seed the tracker with the committed offsets so a restart past retention is logged
+        for tp, committed in zip(parts, cons.committed(parts, timeout=20), strict=True):
+            offsets.seed(tp.partition, committed.offset)
+            log.info("partition_assigned", partition=tp.partition, committed=committed.offset)
+
     consumer = Consumer(
         {
             "bootstrap.servers": BOOTSTRAP,
@@ -81,7 +90,7 @@ def main() -> int:
             "sasl.username": settings.rdm_darwin_user.get_secret_value(),
             "sasl.password": settings.rdm_darwin_password.get_secret_value(),
             "group.id": settings.rdm_darwin_group,
-            "auto.offset.reset": "latest",
+            "auto.offset.reset": "earliest",
             "enable.auto.commit": False,
             "reconnect.backoff.ms": 500,
             "reconnect.backoff.max.ms": 30000,
@@ -92,11 +101,13 @@ def main() -> int:
     )
     writer = HourlyWriter(RAW_DIR)
     gaps = GapDetector(300)
+    offsets = OffsetTracker()
+    last_commit = last_window = time.monotonic()
     total_msgs = total_bytes = win_msgs = win_bytes = 0
     started = last_log = time.monotonic()
     exit_code = 0
     try:
-        consumer.subscribe([TOPIC])
+        consumer.subscribe([TOPIC], on_assign=on_assign)
         log.info("capture_start", topic=TOPIC, limit_seconds=limit_s)
         while not stop and (limit_s is None or time.monotonic() - started < limit_s):
             msg = consumer.poll(1.0)
@@ -116,6 +127,17 @@ def main() -> int:
                     gap = gaps.check(ts_ms)
                     if gap is not None:
                         log.warning("gap_detected", gap_seconds=round(gap), kafka_ts=ts_ms)
+                    skipped, replayed = offsets.check(msg.partition(), msg.offset())
+                    if skipped:
+                        log.warning(
+                            "offsets_skipped", partition=msg.partition(), skipped=skipped,
+                            first_offset=msg.offset(), kafka_ts=ts_ms,
+                        )  # fmt: skip
+                    if replayed:
+                        log.warning(
+                            "offsets_replayed", partition=msg.partition(), replayed=replayed,
+                            first_offset=msg.offset(),
+                        )  # fmt: skip
                     line = strip_message(msg.value(), msg.partition(), msg.offset(), ts_ms)
                     if writer.write(ts_ms, line):
                         writer.flush()
@@ -125,6 +147,20 @@ def main() -> int:
                     total_bytes += len(line)
                     win_bytes += len(line)
             now = time.monotonic()
+            if now - last_commit >= 60:
+                writer.flush()
+                commit(consumer, log)
+                last_commit = now
+            if now - last_window >= 600:
+                last_window = now
+                try:
+                    low, high = consumer.get_watermark_offsets(TopicPartition(TOPIC, 0), timeout=10)
+                    log.info(
+                        "broker_window", low=low, high=high, held=high - low,
+                        behind=high - offsets.next_offset(0, high),
+                    )  # fmt: skip
+                except KafkaException as exc:
+                    log.warning("broker_window_failed", error=exc.args[0].name())
             if now - last_log >= 60:
                 writer.flush()
                 log.info(

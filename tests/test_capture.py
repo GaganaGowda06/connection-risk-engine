@@ -68,3 +68,31 @@ def test_gap_detector():
     assert g.check(ms(2026, 10, 15, 10, 4, 59)) is None  # under threshold
     assert g.check(ms(2026, 10, 15, 10, 10, 0)) == 301.0  # jump of 5 min 1 s
     assert g.check(ms(2026, 10, 15, 10, 10, 1)) is None
+
+
+def test_offset_tracker_reports_skips_and_replays():
+    from rail_risk.capture import OffsetTracker
+
+    t = OffsetTracker()
+    t.seed(0, 100)
+    assert t.check(0, 100) == (0, 0)
+    assert t.check(0, 101) == (0, 0)
+    assert t.check(0, 150) == (48, 0)  # 102..149 were not on the broker
+    assert t.check(0, 140) == (0, 11)  # a rebalance replays from an older commit
+    assert t.check(0, 151) == (0, 0)  # the high-water mark was kept, so no false skip
+
+
+def test_offset_tracker_restart_inside_retention_reports_nothing():
+    from rail_risk.capture import OffsetTracker
+
+    t = OffsetTracker()
+    t.seed(0, 500)
+    assert [t.check(0, o) for o in (500, 501, 502)] == [(0, 0)] * 3
+
+
+def test_offset_tracker_without_commit_starts_clean():
+    from rail_risk.capture import OffsetTracker
+
+    t = OffsetTracker()
+    t.seed(0, -1001)
+    assert t.check(0, 9000) == (0, 0)

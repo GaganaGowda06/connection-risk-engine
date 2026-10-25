@@ -571,13 +571,34 @@ class DarwinManifest:
         self._db.close()
 
 
-def parse_file(path: Path, key: str, interim_root: Path) -> FileResult:
+OFFSET_HEAD = re.compile(rb'"partition":(\d+),"offset":(\d+)')
+PRIOR_FILES = 2
+
+
+def file_offsets(path: Path) -> set[tuple[int, int]]:
+    """(partition, offset) of every readable line, to drop replays of an earlier file."""
+    found: set[tuple[int, int]] = set()
+    for line in iter_lines(path, ReadStats()):
+        m = OFFSET_HEAD.search(line[:300])  # both stored formats keep them at the front
+        if m:
+            found.add((int(m.group(1)), int(m.group(2))))
+    return found
+
+
+def parse_file(
+    path: Path,
+    key: str,
+    interim_root: Path,
+    prior: set[tuple[int, int]] | None = None,
+) -> FileResult:
+    """Parse one hourly file. `prior` holds offsets already written by the files before it, so a
+    replay after a reconnect (which lands in a later file) is dropped on (partition, offset)."""
     started = time.monotonic()
     root = interim_root / "darwin"
     _remove_old_parts(root, key)
     stats = ReadStats()
     out = Parsed()
-    seen: set[tuple[int, int]] = set()
+    seen: set[tuple[int, int]] = set(prior or ())
     rows = dict.fromkeys((*TABLES, "darwin_messages"), 0)
     quarantined = dict.fromkeys((*TABLES, "darwin_messages"), 0)
     reasons: dict[str, int] = {}
@@ -647,7 +668,8 @@ def parse_directory(
     log = get_logger("darwin")
     current = (now or datetime.now(UTC)).strftime("%Y-%m-%d/%H")
     results = []
-    for path in sorted(raw_root.glob("*/*.jsonl.gz")):
+    paths = sorted(raw_root.glob("*/*.jsonl.gz"))
+    for i, path in enumerate(paths):
         key = f"{path.parent.name}/{path.name.removesuffix('.jsonl.gz')}"
         if only_date and path.parent.name != only_date.isoformat():
             continue
@@ -657,7 +679,10 @@ def parse_directory(
         size = path.stat().st_size
         if manifest.size_of(key) == size:
             continue
-        result = parse_file(path, key.replace("/", "T"), interim_root)
+        prior: set[tuple[int, int]] = set()
+        for earlier in paths[max(0, i - PRIOR_FILES) : i]:
+            prior |= file_offsets(earlier)
+        result = parse_file(path, key.replace("/", "T"), interim_root, prior)
         manifest.record(key, size, result)
         results.append(result)
         log.info(
