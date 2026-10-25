@@ -19,7 +19,10 @@ def test_oot_week_stays_closed_without_a_threshold_file(tmp_path, monkeypatch):
     with P.reading_split("oot_week", "oot_replay"):
         assert P._ACTIVE_SPLIT == "oot_week"
     assert P._ACTIVE_SPLIT == "train_pool"
-    (tmp_path / "done.json").write_text("{}")
+    (tmp_path / "done.json").write_text('{"state": "a rehearsal on validation"}')
+    with P.reading_split("oot_week", "oot_replay"):  # a marker without oot_week_scored is no bar
+        pass
+    (tmp_path / "done.json").write_text('{"oot_week_scored": true}')
     with pytest.raises(PermissionError, match="already"):
         P.reading_split("oot_week", "oot_replay").__enter__()
 

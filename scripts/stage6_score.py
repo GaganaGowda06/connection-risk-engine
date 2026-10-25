@@ -21,7 +21,7 @@ import pandas as pd
 from rail_risk.baselines import build as BB
 from rail_risk.connections import build as CB
 from rail_risk.evaluation import reliability
-from rail_risk.ingest.pport_extract import GATE_DONE, reading_split
+from rail_risk.ingest.pport_extract import GATE_DONE, oot_already_scored, reading_split
 from rail_risk.network_model.evaluate import paired_mae_diff
 from rail_risk.serving import artifacts as AR
 
@@ -123,7 +123,7 @@ def main() -> None:
             pd.Timestamp("2026-10-02 10:00", tz="UTC"),
         )
         args.state = "data/interim/serve/guard_replay/state"
-    if GATE_DONE.exists() and not args.dry:
+    if oot_already_scored() and not args.dry:
         raise SystemExit(f"already scored: {GATE_DONE.read_text()[:200]}")
     art = AR.load()
     held = set(art["held"])
@@ -363,9 +363,12 @@ def main() -> None:
             default=float,
         )
     )
+    if args.dry:
+        return  # a rehearsal never writes the marker
     GATE_DONE.write_text(
-        json.dumps({"state": args.state, "arrival_rows": len(a), "pair_rows": len(p)}) + "\n"
-    )
+        json.dumps({"oot_week_scored": True, "state": args.state, "arrival_rows": len(a),
+                    "pair_rows": len(p)}) + "\n"
+    )  # fmt: skip
 
 
 if __name__ == "__main__":

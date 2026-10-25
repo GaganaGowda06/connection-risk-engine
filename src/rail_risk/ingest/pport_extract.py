@@ -191,12 +191,22 @@ GATE_THRESHOLD = Path("reports/serving/guard_threshold.json")
 GATE_DONE = Path("reports/serving/oot_replay_scored.json")
 
 
+def oot_already_scored() -> bool:
+    """True only for a marker that records an oot_week scoring (a rehearsal's file does not)."""
+    if not GATE_DONE.exists():
+        return False
+    try:
+        return bool(json.loads(GATE_DONE.read_text()).get("oot_week_scored"))
+    except ValueError:
+        return False
+
+
 def replay_gate() -> None:
     """oot_week can be read only by the Stage 6 replay, once: the freshness threshold must already
     be fixed on validation days (its file exists) and the replay must not have been scored."""
     if not GATE_THRESHOLD.exists():
         raise PermissionError(f"oot_week stays closed until {GATE_THRESHOLD} exists")
-    if GATE_DONE.exists():
+    if oot_already_scored():
         raise PermissionError(f"oot_week was already replayed and scored: {GATE_DONE}")
 
 
