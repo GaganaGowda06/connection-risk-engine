@@ -189,7 +189,7 @@ def tune(rows: pd.DataFrame, cfg: dict, option: str) -> dict:
         )
         best = agg.sort_values("score").iloc[0]
         out[kind] = {
-            "params": {k: (best[k].item() if hasattr(best[k], "item") else best[k]) for k in keys},
+            "params": {k: type(cfg["grid"][k][0])(best[k]) for k in keys},
             "rounds": int(max(best["rounds"], 20)),
             "score": float(best["score"]),
         }
