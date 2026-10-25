@@ -187,6 +187,17 @@ def partial_days(stats_dir: Path) -> list[str]:
 
 
 _ACTIVE_SPLIT = "train_pool"
+GATE_THRESHOLD = Path("reports/serving/guard_threshold.json")
+GATE_DONE = Path("reports/serving/oot_replay_scored.json")
+
+
+def replay_gate() -> None:
+    """oot_week can be read only by the Stage 6 replay, once: the freshness threshold must already
+    be fixed on validation days (its file exists) and the replay must not have been scored."""
+    if not GATE_THRESHOLD.exists():
+        raise PermissionError(f"oot_week stays closed until {GATE_THRESHOLD} exists")
+    if GATE_DONE.exists():
+        raise PermissionError(f"oot_week was already replayed and scored: {GATE_DONE}")
 
 
 @contextmanager
@@ -194,7 +205,9 @@ def reading_split(split: str, purpose: str):
     """Let train_pool_table read one other split inside the block. Only the February stress report
     may read winter_test, once; oot_week can never be read through this function."""
     global _ACTIVE_SPLIT
-    if split != "winter_test" or purpose != "february_stress":
+    if (split, purpose) == ("oot_week", "oot_replay"):
+        replay_gate()
+    elif split != "winter_test" or purpose != "february_stress":
         raise ValueError(f"reading split {split!r} for {purpose!r} is not allowed")
     previous, _ACTIVE_SPLIT = _ACTIVE_SPLIT, split
     try:

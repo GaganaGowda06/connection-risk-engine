@@ -1,0 +1,105 @@
+[
+ {
+  "design": "memory",
+  "process_hour_s": 3.57,
+  "hour_stats": {
+   "hour": "2026-09-25 12:00:00+00:00",
+   "files": 8,
+   "arrival_rows": 172,
+   "pair_rows": 11423,
+   "stale_arrival": 0,
+   "stale_pairs": 0,
+   "seconds": {
+    "ingest": 0.04,
+    "arrival": 1.76,
+    "pairs": 1.76,
+    "commit": 0.0,
+    "checkpoint": 0.003
+   },
+   "peak_mb": 2549
+  },
+  "risk_lookup_ms": {
+   "p50": 0.23,
+   "p95": 0.24
+  },
+  "connection_lookup_ms": {
+   "p50": 0.38,
+   "p95": 0.39
+  },
+  "peak_mb": 2549,
+  "state_mb": 2.5,
+  "restart_s": 0.25,
+  "rows": {
+   "arrival": 172,
+   "pair": 11423
+  }
+ },
+ {
+  "design": "duckdb",
+  "process_hour_s": 3.6,
+  "hour_stats": {
+   "hour": "2026-09-25 12:00:00+00:00",
+   "files": 8,
+   "arrival_rows": 172,
+   "pair_rows": 11423,
+   "stale_arrival": 0,
+   "stale_pairs": 0,
+   "seconds": {
+    "ingest": 0.04,
+    "arrival": 1.77,
+    "pairs": 1.77,
+    "commit": 0.016
+   },
+   "peak_mb": 2451
+  },
+  "risk_lookup_ms": {
+   "p50": 0.89,
+   "p95": 0.93
+  },
+  "connection_lookup_ms": {
+   "p50": 1.29,
+   "p95": 1.34
+  },
+  "peak_mb": 2451,
+  "state_mb": 2.6,
+  "restart_s": 0.26,
+  "rows": {
+   "arrival": 172,
+   "pair": 11423
+  }
+ },
+ {
+  "design": "sqlite",
+  "process_hour_s": 3.76,
+  "hour_stats": {
+   "hour": "2026-09-25 12:00:00+00:00",
+   "files": 8,
+   "arrival_rows": 172,
+   "pair_rows": 11423,
+   "stale_arrival": 0,
+   "stale_pairs": 0,
+   "seconds": {
+    "ingest": 0.04,
+    "arrival": 1.78,
+    "pairs": 1.76,
+    "commit": 0.168
+   },
+   "peak_mb": 2515
+  },
+  "risk_lookup_ms": {
+   "p50": 0.39,
+   "p95": 0.41
+  },
+  "connection_lookup_ms": {
+   "p50": 0.91,
+   "p95": 1.13
+  },
+  "peak_mb": 2515,
+  "state_mb": 2.9,
+  "restart_s": 0.27,
+  "rows": {
+   "arrival": 172,
+   "pair": 11423
+  }
+ }
+]

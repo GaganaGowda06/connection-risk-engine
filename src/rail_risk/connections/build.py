@@ -106,9 +106,19 @@ GROUP BY 1, 2
 
 
 def _build_day(
-    root: Path, ssd: date, cfg: dict, mct: pd.DataFrame, tiploc_crs: pd.DataFrame, thin: int
+    root: Path,
+    ssd: date,
+    cfg: dict,
+    mct: pd.DataFrame,
+    tiploc_crs: pd.DataFrame,
+    thin: int,
+    labels: bool = True,
+    due: tuple | None = None,
+    gap: tuple | None = None,
 ) -> tuple[pd.DataFrame, dict]:
-    """Rows for one service date: one per (pair, horizon). thin 1 keeps every pair."""
+    """Rows for one service date: one per (pair, horizon). thin 1 keeps every pair.
+    labels False builds the state only (serving: no outcome tables are read). `due` keeps only the
+    snapshots with T in [start, end). `gap` drops every message received in [start, end)."""
     win = int(cfg["actual_window_h"]) * 3600
     tpls = hub_tiplocs(cfg["hubs"], tiploc_crs)
     corr = tiploc_crs.dropna(subset=["crs"])[["tiploc", "crs"]].drop_duplicates("tiploc")
@@ -159,8 +169,12 @@ def _build_day(
                 ],
                 d,
             ),  # fmt: skip
-            train_pool_view(
-                con, root, "sa_v", "stop_actuals", ["rid", "tpl", "event", "actual"], d
+            (
+                train_pool_view(
+                    con, root, "sa_v", "stop_actuals", ["rid", "tpl", "event", "actual"], d
+                )
+                if labels
+                else True
             ),  # fmt: skip
         )
     )
@@ -169,6 +183,12 @@ def _build_day(
         return pd.DataFrame(), {"ssd": str(ssd), "pairs": 0}
     con.execute("CREATE TEMP TABLE sch AS SELECT * FROM sch_v")
     con.execute("CREATE TEMP TABLE sp AS SELECT * FROM sp_v")
+    gap_sql = "TRUE"
+    if gap is not None:
+        g0, g1 = (pd.Timestamp(x).tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S+00") for x in gap)
+        gap_sql = f"NOT (message_time >= TIMESTAMPTZ '{g0}' AND message_time < TIMESTAMPTZ '{g1}')"
+        con.execute(f"DELETE FROM sch WHERE NOT ({gap_sql})")
+        con.execute(f"DELETE FROM sp WHERE NOT ({gap_sql})")
     stats_mem["tables"] = _rss_mb()
     con.register("ht", tpls)
     con.register("tc", corr)
@@ -217,16 +237,29 @@ def _build_day(
     pr["pid"] = pr.index
     con.register("pr", pr)
     con.register("hz", pd.DataFrame({"h": cfg["horizons"]}))
+    sa_sql = (
+        "CREATE TEMP TABLE sa AS SELECT * FROM sa_v WHERE rid IN (SELECT rid FROM pair_rids);"
+        if labels
+        else ""
+    )
+    due_sql = ""
+    if due is not None:
+        d0, d1 = (pd.Timestamp(x).tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S+00") for x in due)
+        due_sql = (
+            f"AND pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE >= TIMESTAMPTZ '{d0}' "
+            f"AND pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE < TIMESTAMPTZ '{d1}'"
+        )
     con.execute(
         f"""
         CREATE TEMP TABLE pair_rids AS SELECT in_rid AS rid FROM pr UNION SELECT out_rid FROM pr;
         CREATE TEMP TABLE su AS SELECT * FROM raw_su
-          WHERE rid IN (SELECT rid FROM pair_rids) OR tpl IN (SELECT tpl FROM ht);
-        CREATE TEMP TABLE sa AS SELECT * FROM sa_v WHERE rid IN (SELECT rid FROM pair_rids);
+          WHERE (rid IN (SELECT rid FROM pair_rids) OR tpl IN (SELECT tpl FROM ht)) AND {gap_sql};
+        {sa_sql}
         CREATE TEMP TABLE pt_all AS
         SELECT pr.*, hz.h, pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE AS T FROM pr, hz
         WHERE pr.in_seen <= pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE
-          AND pr.out_seen <= pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE;
+          AND pr.out_seen <= pr.plan_dep_out - hz.h * INTERVAL 1 MINUTE
+          {due_sql};
         CREATE TEMP TABLE a AS
         SELECT rid, tpl, event, message_time, actual,
                epoch(actual) - epoch(CASE event WHEN 'arr' THEN coalesce(pt_arr, wt_arr)
@@ -325,6 +358,13 @@ def _build_day(
         con.execute("DROP TABLE pt")
     feats = pd.concat(parts, ignore_index=True)
     stats_mem["features"] = _rss_mb()
+    if not labels:
+        con.close()
+        feats["ssd"] = ssd
+        feats["slack_min"] = feats["gap"] - feats["mct_min"]
+        stats["rows"] = len(feats)
+        stats["peak_rss_mb_by_step"] = stats_mem
+        return feats, stats
     # outcomes, one per pair
     con.execute(
         f"""
@@ -411,11 +451,11 @@ def february_days() -> list[date]:
     return [d for d in days if split_for(d, cfg) == "winter_test" and is_complete(d, files)]
 
 
-def build_day(root, ssd, cfg, mct, tiploc_crs, thin):
+def build_day(root, ssd, cfg, mct, tiploc_crs, thin, labels=True, due=None, gap=None):
     """One service date; the tables and the DuckDB connection are released before returning."""
     import gc
 
     try:
-        return _build_day(root, ssd, cfg, mct, tiploc_crs, thin)
+        return _build_day(root, ssd, cfg, mct, tiploc_crs, thin, labels, due, gap)
     finally:
         gc.collect()

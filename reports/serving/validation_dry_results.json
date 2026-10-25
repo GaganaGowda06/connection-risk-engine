@@ -1,0 +1,264 @@
+{
+ "arrival_rows_scored": 10411,
+ "held_out_arrival_rows": 1756,
+ "coverage_per_route": {
+  "bhm-liv": {
+   "coverage": 0.78125,
+   "n": 192
+  },
+  "bri-cdf": {
+   "coverage": 0.8307086614173228,
+   "n": 254
+  },
+  "bri-wsm": {
+   "coverage": 0.8184523809523809,
+   "n": 336
+  },
+  "glq-abd": {
+   "coverage": 0.8793103448275862,
+   "n": 116
+  },
+  "lst-cbg": {
+   "coverage": 0.8156028368794326,
+   "n": 282
+  },
+  "man-shf": {
+   "coverage": 0.7891891891891892,
+   "n": 370
+  },
+  "myb-bmo": {
+   "coverage": 0.8495145631067961,
+   "n": 206
+  }
+ },
+ "lowest_route": {
+  "route": "bhm-liv",
+  "coverage": 0.78125,
+  "test3_rule_min_0.70_met": true
+ },
+ "coverage_unguarded_aci": 0.8171981776765376,
+ "pair_rows": {
+  "ledger": 580439,
+  "labelled": 557487,
+  "held_out_groups": 212911,
+  "held_out_not_arrived": 96644
+ },
+ "pmiss_vs_logistic": {
+  "BHM": {
+   "brier_final": 0.12132240421585883,
+   "brier_gap_bucket": 0.12959090944284024,
+   "brier_logistic_c": 0.07947718939140062,
+   "diff_final_minus_logistic": {
+    "diff": 0.0418452148244577,
+    "lo": -0.02533019869080151,
+    "hi": 0.09539039366937997
+   },
+   "note": "logistic (c) was not scored on the test block, so there is no test-block reference for this line"
+  },
+  "MAN": {
+   "brier_final": 0.1165706154448665,
+   "brier_gap_bucket": 0.12950386407422876,
+   "brier_logistic_c": 0.08024399614405096,
+   "diff_final_minus_logistic": {
+    "diff": 0.03632661930081579,
+    "lo": -0.01868160579800441,
+    "hi": 0.07803551795760062
+   },
+   "note": "logistic (c) was not scored on the test block, so there is no test-block reference for this line"
+  },
+  "BRI": {
+   "brier_final": 0.11513149606077484,
+   "brier_gap_bucket": 0.13198299651732523,
+   "brier_logistic_c": 0.08089475477410506,
+   "diff_final_minus_logistic": {
+    "diff": 0.03423674128666977,
+    "lo": -0.027422947842884415,
+    "hi": 0.0906276895693722
+   },
+   "note": "logistic (c) was not scored on the test block, so there is no test-block reference for this line"
+  }
+ },
+ "parity_rows_in_affected_windows_excluded": 114419,
+ "parity_pairs_not_stale": {
+  "rows": 465464,
+  "max_abs_diff": 0.0,
+  "rows_over_1e-6": 0
+ },
+ "gap_2026_10_20": {
+  "window_utc": [
+   "2026-10-02 09:00:00+00:00",
+   "2026-10-02 14:00:00+00:00"
+  ],
+  "pair_rows": 56015,
+  "pair_stale_share": 0.0,
+  "pair_brier_with_guard": 0.13047968242953106,
+  "pair_brier_without_guard": 0.13047968242953106,
+  "pair_brier_gap_bucket": 0.05088789831877449,
+  "arrival_rows": 837,
+  "arrival_held_out_rows": 139,
+  "arrival_stale_share": 0.0,
+  "held_out_coverage_with_guard": 0.7841726618705036,
+  "held_out_coverage_without_guard": 0.7841726618705036,
+  "held_out_brier_p_late_with_guard": 0.03767033114548744,
+  "held_out_brier_p_late_without_guard": 0.03767033114548744,
+  "pair_stale_only": {
+   "rows": 0,
+   "brier_with_guard": null,
+   "brier_without_guard": null
+  }
+ },
+ "table_6a": [
+  {
+   "metric": "test2 MAE diff vs persistence at 15 (model minus baseline, minutes)",
+   "replay": -0.05361646901024538,
+   "test_lo": -0.33498279256618985,
+   "test_hi": -0.09244794472568404,
+   "verdict": "outside (worse)",
+   "note": "replay CI [-0.228, 0.090], n 878"
+  },
+  {
+   "metric": "test2 MAE diff vs persistence at 60 (model minus baseline, minutes)",
+   "replay": -0.27755225020378127,
+   "test_lo": -0.22484345758209806,
+   "test_hi": -0.07877312129848953,
+   "verdict": "outside (better)",
+   "note": "replay CI [-0.396, -0.133], n 878"
+  },
+  {
+   "metric": "test2 MAE diff vs historical at 15 (model minus baseline, minutes)",
+   "replay": -2.0883545100125236,
+   "test_lo": -2.271905859982646,
+   "test_hi": -1.4202796121805814,
+   "verdict": "within",
+   "note": "replay CI [-2.672, -1.413], n 878"
+  },
+  {
+   "metric": "test2 MAE diff vs historical at 60 (model minus baseline, minutes)",
+   "replay": -0.9347276488370392,
+   "test_lo": -0.6079559886499715,
+   "test_hi": -0.15311879619222551,
+   "verdict": "outside (better)",
+   "note": "replay CI [-1.468, -0.470], n 878"
+  },
+  {
+   "metric": "test3 coverage overall (held-out routes)",
+   "replay": 0.8171981776765376,
+   "test_lo": 0.7877339938265459,
+   "test_hi": 0.8171574809980447,
+   "verdict": "outside (better)",
+   "note": "replay CI [0.8155, 0.8191], n 1756"
+  },
+  {
+   "metric": "test3 coverage at 15",
+   "replay": 0.8177676537585421,
+   "test_lo": 0.7952285582119052,
+   "test_hi": 0.8188757807078417,
+   "verdict": "within",
+   "note": "n 878"
+  },
+  {
+   "metric": "test3 coverage at 60",
+   "replay": 0.816628701594533,
+   "test_lo": 0.7887746560242502,
+   "test_hi": 0.8137891504635812,
+   "verdict": "outside (better)",
+   "note": "n 878"
+  },
+  {
+   "metric": "test4 Brier P(delay>=15) at 15",
+   "replay": 0.020539137391014463,
+   "test_lo": 0.01473355272314992,
+   "test_hi": 0.027511379633691935,
+   "verdict": "within",
+   "note": "replay CI [0.0169, 0.0240], base rate 0.0786"
+  },
+  {
+   "metric": "test4 ECE P(delay>=15) at 15",
+   "replay": 0.013618056591549296,
+   "test_lo": 0.00977058490934658,
+   "test_hi": 0.020108329822481,
+   "verdict": "within",
+   "note": "replay CI [0.0066, 0.0235]"
+  },
+  {
+   "metric": "test4 Brier diff vs historical at 15 (model minus historical)",
+   "replay": -0.05002965606795045,
+   "test_lo": -0.04364648692953065,
+   "test_hi": -0.01572380803030158,
+   "verdict": "outside (better)",
+   "note": "replay CI [-0.0627, -0.0342]"
+  },
+  {
+   "metric": "test4 Brier P(delay>=15) at 60",
+   "replay": 0.04124745182300174,
+   "test_lo": 0.03027967158644266,
+   "test_hi": 0.05118773735906471,
+   "verdict": "within",
+   "note": "replay CI [0.0368, 0.0454], base rate 0.0786"
+  },
+  {
+   "metric": "test4 ECE P(delay>=15) at 60",
+   "replay": 0.01135630841007697,
+   "test_lo": 0.0105724542911758,
+   "test_hi": 0.025367281767487954,
+   "verdict": "within",
+   "note": "replay CI [0.0094, 0.0328]"
+  },
+  {
+   "metric": "test4 Brier diff vs historical at 60 (model minus historical)",
+   "replay": -0.029321341635963196,
+   "test_lo": -0.01863018919256059,
+   "test_hi": -0.0038566953802671184,
+   "verdict": "outside (better)",
+   "note": "replay CI [-0.0419, -0.0154]"
+  },
+  {
+   "metric": "test5 BHM Brier diff vs gap-bucket, not-yet-arrived (final minus bar)",
+   "replay": -0.008268505226977106,
+   "test_lo": -0.12880465491614718,
+   "test_hi": -0.07731501871379295,
+   "verdict": "outside (worse)",
+   "note": "replay CI [-0.1163, 0.0661], n 66910"
+  },
+  {
+   "metric": "test5 BHM ECE, not-yet-arrived",
+   "replay": 0.09257174460848688,
+   "test_lo": 0.002489614049269264,
+   "test_hi": 0.009480686548750967,
+   "verdict": "outside (worse)",
+   "note": "replay CI [0.0042, 0.1694]"
+  },
+  {
+   "metric": "test5 MAN Brier diff vs gap-bucket, not-yet-arrived (final minus bar)",
+   "replay": -0.012933248629361918,
+   "test_lo": -0.09810153485191639,
+   "test_hi": -0.06793289969643512,
+   "verdict": "outside (worse)",
+   "note": "replay CI [-0.1141, 0.0514], n 24449"
+  },
+  {
+   "metric": "test5 MAN ECE, not-yet-arrived",
+   "replay": 0.09045334441663493,
+   "test_lo": 0.011375439196446381,
+   "test_hi": 0.016777457104547346,
+   "verdict": "outside (worse)",
+   "note": "replay CI [0.0143, 0.1504]"
+  },
+  {
+   "metric": "test5 BRI Brier diff vs gap-bucket, not-yet-arrived (final minus bar)",
+   "replay": -0.0168515004565503,
+   "test_lo": -0.11595425716369423,
+   "test_hi": -0.08897684685820878,
+   "verdict": "outside (worse)",
+   "note": "replay CI [-0.1245, 0.0759], n 5285"
+  },
+  {
+   "metric": "test5 BRI ECE, not-yet-arrived",
+   "replay": 0.08496247078318789,
+   "test_lo": 0.004709446758334521,
+   "test_hi": 0.015388041726239705,
+   "verdict": "outside (worse)",
+   "note": "replay CI [0.0065, 0.1525]"
+  }
+ ]
+}

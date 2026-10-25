@@ -61,6 +61,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
 CMD ["rail-risk", "serve", "--host", "0.0.0.0", "--port", "8000"]
 
+# ---- replay service: the API plus the replay worker, no Spark use ----------------------------
+FROM api AS serve
+CMD ["python", "-m", "rail_risk.serving.run", "--serve"]
+
 # ---- UI runtime -----------------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS ui
 ENV PATH=/app/.venv/bin:$PATH \

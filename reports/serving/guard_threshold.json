@@ -1,0 +1,12 @@
+{
+ "feed_min": 12,
+ "recent_min": 60,
+ "hub_min": 1000000000.0,
+ "widen_k": 0.0,
+ "chosen_on": "validation replay 2026-10-01 to 2026-10-04 with removed hours 2026-10-02 09:00-10:00 and 2026-10-03 15:00-17:00 UTC",
+ "pair_brier_affected": {
+  "without_guard": 0.19666737367771822,
+  "with_guard": 0.049957888281913096,
+  "gap_bucket": 0.09070935608985545
+ }
+}

@@ -22,6 +22,35 @@ services:
       - /tmp:exec,mode=1777,size=1g
     restart: unless-stopped
 
+  serve:
+    # Stage 6: the engine and the API in one process. It replays archive hours in message-time
+    # order and answers /risk, /connection, /inbound, /health from the committed state. A killed
+    # container restarts by policy and resumes from the last committed hour.
+    build:
+      context: .
+      target: serve
+    image: rail-risk-serve:latest
+    profiles: [serve]
+    command: >
+      python -m rail_risk.serving.run --serve --split ${REPLAY_SPLIT:-train_pool}
+      --start ${REPLAY_START:-2026-10-01T00:00} --end ${REPLAY_END:-2026-10-05T00:00}
+      --state /app/data/interim/serve/state_${REPLAY_NAME:-validation}
+      --store-root /app/data/interim/serve/store_${REPLAY_NAME:-validation}
+      --die-after-hours ${REPLAY_DIE:-0} --skip ${REPLAY_SKIP:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data/interim:/app/data/interim:ro
+      - ./data/interim/serve:/app/data/interim/serve
+      - ./data/ref:/app/data/ref:ro
+      - ./config:/app/config:ro
+      - ./reports/serving:/app/reports/serving:ro
+      - ./reports/network_model:/app/reports/network_model:ro
+    mem_limit: 5g
+    restart: unless-stopped
+    environment:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+
   ui:
     build:
       context: .
