@@ -1,0 +1,21 @@
+# Stage 3 route-agnostic model (rail_risk.network_model). Chosen on validation only, see
+# DECISIONS.md: residual over shrunk persistence beat raw lateness and slack-recovery.
+option: residual
+seed: 20261015
+quantiles: [0.1, 0.5, 0.9]
+num_threads: 4
+resamples: 1000
+# leave-route-group-out tuning inside train dates (every tune_day_step-th day)
+folds: 4
+tune_day_step: 3
+max_rounds: 600
+early_stopping: 30
+grid:
+  num_leaves: [15, 31]
+  min_data_in_leaf: [100, 400]
+fixed:
+  learning_rate: 0.05
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  bagging_freq: 1
+  lambda_l2: 10.0

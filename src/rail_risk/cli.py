@@ -698,6 +698,24 @@ def _evaluate_network_baselines(args: argparse.Namespace) -> int:
     return 0
 
 
+def _network_model(args: argparse.Namespace) -> int:
+    from rail_risk.network_model import run as network_run
+
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        if args.command == "train-network":
+            out = network_run.train_command(args.config)
+            print(f"run {out['run_id']}: validation gate passed = {out['gate_passed']}")
+            return 0 if out["gate_passed"] else 2
+        out = network_run.evaluate_command(args.run_id, args.config)
+        print(out["paired"].round(3).to_string(index=False))
+        return 0
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        get_logger().error("network_model_failed", error=str(exc))
+        return 1
+
+
 def _evaluate_baselines(args: argparse.Namespace) -> int:
     if not args.legacy:
         return _evaluate_network_baselines(args)
@@ -847,6 +865,16 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     ev.add_argument("--out", type=Path, default=Path("reports/baselines"))
+    tn = sub.add_parser(
+        "train-network",
+        help="Stage 3: tune, fit and gate the route-agnostic model on validation (never the test)",
+    )
+    tn.add_argument("--config", type=Path, default=Path("config/network_model.yaml"))
+    en = sub.add_parser(
+        "evaluate-network", help="Stage 3: score the test block, once, after the gate passed"
+    )
+    en.add_argument("--run-id", required=True)
+    en.add_argument("--config", type=Path, default=Path("config/network_model.yaml"))
     cn = sub.add_parser("connection", help="miss probability and expected payout for a connection")
     cn.add_argument("--inbound-rid", required=True)
     cn.add_argument(
@@ -942,6 +970,8 @@ def main(argv: list[str] | None = None) -> int:
         return _connection(args)
     if args.command == "evaluate-baselines":
         return _evaluate_baselines(args)
+    if args.command in ("train-network", "evaluate-network"):
+        return _network_model(args)
     if args.command == "rebuild-hsp":
         return _rebuild_hsp(args)
     if args.command == "live-eval":
