@@ -1,0 +1,51 @@
+{
+ "1_inbound_cancelled_mid_journey": {
+  "rows": 17966,
+  "pairs": 8979,
+  "mean_p_model_cancel_not_yet_known": 0.8644950884097842,
+  "n_cancel_not_yet_known": 7903,
+  "mean_p_model_cancel_known": 0.996929023225833,
+  "n_cancel_known": 10063,
+  "mean_p_gap_bucket": 0.10809844126336442,
+  "actual_miss_rate": 1.0,
+  "brier_model": 0.03222126609305952,
+  "brier_gap_bucket": 0.8035014944607763
+ },
+ "2_late_outbound_saves_connection": {
+  "rows": 29077,
+  "mean_p_model": 0.35032157555355664,
+  "mean_p_gap_bucket": 0.2610981673512708,
+  "brier_model": 0.21262398050169878,
+  "brier_gap_bucket": 0.08289817414195083,
+  "note": "inbound later than the planned slack, yet the connection was made (label 0)"
+ },
+ "3_hub_with_150_pairs": {
+  "hub": "BRI",
+  "pairs": 150,
+  "rows": 604,
+  "brier_model": 0.016044509767214783,
+  "ece": 0.004934549553385192,
+  "brier_gap_bucket_pooled": 0.06809868359288083,
+  "note": "the pooled gap-bucket is used for a hub the bar never saw; ECE on 600 rows is noisy"
+ },
+ "4_unknown_mct": {
+  "day": "2026-09-25",
+  "bhm_rows_full": 95112,
+  "bhm_rows_without_mct": 0,
+  "other_hub_rows_unchanged": true,
+  "dropped_unknown_mct": 29464
+ },
+ "5_missing_hour_0900_1000": {
+  "day": "2026-09-25",
+  "pairs_built_with_gap": 176632,
+  "pairs_built_full": 176632,
+  "rows_scored_1000_1100": 11364,
+  "brier_full": 0.017500824441735972,
+  "brier_with_gap": 0.2092522942585164,
+  "rows_1000_1100_state_changed": 1407,
+  "rows_inside_gap": 11418,
+  "brier_full_inside": 0.019292364838030356,
+  "brier_with_gap_inside": 0.37748250576803405,
+  "mean_abs_p_change_inside": 0.44334718210992047
+ }
+}
