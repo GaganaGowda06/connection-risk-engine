@@ -8,17 +8,19 @@ from pathlib import Path
 
 import pandas as pd
 
-from rail_risk.baselines import build, gap_bucket, models, scoring
+from rail_risk.baselines import build, gap_bucket, models, pairs, scoring
 from rail_risk.baselines.split import network_split
 from rail_risk.clean.run import route_specs
 from rail_risk.config import load_routes
 from rail_risk.ingest.darwin_pport import load_stage1_config, split_for
+from rail_risk.ingest.mct import MctError, load_mct_table
 from rail_risk.logging import get_logger
 
 ROOT = Path("data/interim/pport")
 SNAP_DIR = Path("data/interim/stage2") / build.SNAP_DIR
 REPORT_DIR = Path("reports/baselines")
 HEADLINE = (15, 60)
+GAP_HORIZONS = (5, 15, 60)
 
 
 def git_head() -> str:
@@ -72,11 +74,11 @@ def run(
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     table_df.to_csv(out_dir / "stage2_baselines.csv", index=False)
-    try:
-        gap_bucket.load_mct()
-        mct_status = "available"
-    except gap_bucket.MctMissing as exc:
-        mct_status = f"blocked: {exc}"
+    gap, gap_meta = run_gap_bucket(
+        root, split, routes, stations, snap_dir.parent / pairs.PAIRS_DIR, cfg, rebuild
+    )
+    if gap is not None:
+        gap.to_csv(out_dir / "stage2_gap_bucket.csv", index=False)
     run_id = hashlib.sha256(
         f"{git_head()}|{split.train[-1]}|{split.test[0]}|{fitted.fit_rows}|{len(test)}".encode()
     ).hexdigest()[:12]
@@ -90,7 +92,7 @@ def run(
         "test_rows": int(len(test)),
         "build": {k: (v if not isinstance(v, list) else len(v)) for k, v in built.items()},
         "missing_days": built["missing_days"],
-        "gap_bucket_status": mct_status,
+        "gap_bucket": gap_meta,
         "routes_without_test_rows": sorted(
             set(r.id for r in table) - set(test.loc[test["has_target"], "route"])
         ),
@@ -98,9 +100,69 @@ def run(
         "oot_week_or_winter_rows_in_fit": 0,
     }
     build.write_json(out_dir / "stage2_baselines.json", meta)
-    write_markdown(table_df, meta, out_dir / "stage2_baselines.md")
+    write_markdown(table_df, meta, out_dir / "stage2_baselines.md", gap)
     log.info("baselines_done", run_id=run_id, test_rows=len(test), fit_rows=fitted.fit_rows)
     return meta
+
+
+def run_gap_bucket(root, split, routes, stations, pairs_dir, cfg, rebuild):
+    """Fit the gap buckets on train pairs and score the test pairs; blocked without an MCT file."""
+    try:
+        table = load_mct_table()
+    except MctError as exc:
+        return None, {"status": f"blocked: {exc}"}
+    built = pairs.build_pairs_range(
+        root, [*split.train, *split.test], routes, stations, pairs_dir, rebuild
+    )
+    out = {}
+    for name, days in (("train", split.train), ("test", split.test)):
+        p = pairs.load_pairs(pairs_dir, list(days))
+        p = pairs.known_at(p, 15) if name == "train" else p
+        p["mct_min"] = gap_bucket.pair_mct(p, table)
+        out[name] = (p, int(p["mct_min"].isna().sum()))
+    train = gap_bucket.label_pairs(out["train"][0][out["train"][0]["schedule_known"]])
+    model = gap_bucket.fit_buckets(train)
+    parts = []
+    for h in GAP_HORIZONS:
+        t = pairs.known_at(out["test"][0].drop(columns=["mct_min"]), h)
+        t["mct_min"] = gap_bucket.pair_mct(t, table)
+        t = gap_bucket.label_pairs(t[t["schedule_known"]])
+        sc = scoring.score_pairs(
+            scoring.pair_stats(t, gap_bucket.predict_buckets(model, t)),
+            sorted(t["hub"].unique()),
+            cfg.resamples,
+            cfg.seed,
+            cfg.confidence,
+        )
+        sc.insert(0, "horizon_min", h)
+        sc["miss_rate"] = [
+            float(
+                (t if g == "all_hubs" else t[t["hub"] == g])
+                .pipe(lambda x, s=s: x if s == "all_pairs" else x[~x["inbound_arrived_by_t"]])[
+                    "miss"
+                ]
+                .mean()
+            )
+            for s, g in zip(sc["subset"], sc["group"], strict=True)
+        ]
+        parts.append(sc)
+    mct_used = (
+        train.groupby(["hub", "in_toc", "out_toc"])["mct_min"]
+        .first()
+        .reset_index()
+        .to_dict("records")
+    )
+    meta = {
+        "status": "scored",
+        "mct_source": str(table["source_file"].iloc[0]),
+        "mct_seq": str(table["source_seq"].iloc[0]),
+        "mct_generated": str(table["generated_date"].iloc[0]),
+        "pairs_built": built,
+        "train_pairs": int(len(train)),
+        "pairs_without_mct": {k: v[1] for k, v in out.items()},
+        "mct_used": mct_used,
+    }
+    return pd.concat(parts, ignore_index=True), meta
 
 
 def _cell(row: pd.Series, key: str, digits: int = 2) -> str:
@@ -109,7 +171,9 @@ def _cell(row: pd.Series, key: str, digits: int = 2) -> str:
     return f"{row[key]:.{digits}f} [{row[f'{key}_lo']:.{digits}f}, {row[f'{key}_hi']:.{digits}f}]"
 
 
-def write_markdown(df: pd.DataFrame, meta: dict, path: Path) -> None:
+def write_markdown(
+    df: pd.DataFrame, meta: dict, path: Path, gap: pd.DataFrame | None = None
+) -> None:
     lines = [
         "# Stage 2 baselines",
         "",
@@ -120,7 +184,7 @@ def write_markdown(df: pd.DataFrame, meta: dict, path: Path) -> None:
         "The historical baseline uses each held-out route's own earlier dates, which makes the "
         "bar harder than a route it has never seen. darwin_forecast is a reference, not a GOAL "
         "baseline. Lateness is in minutes. Coverage is of the 10 to 90 percent range.",
-        f"Gap-bucket P(miss): {meta['gap_bucket_status']}.",
+        f"Gap-bucket P(miss): {meta['gap_bucket']['status']}.",
         "",
     ]
     for group, title in (
@@ -159,9 +223,35 @@ def write_markdown(df: pd.DataFrame, meta: dict, path: Path) -> None:
                     f"| {route} | {method} | {h} | {n} | {_cell(r, 'mae')} | "
                     f"{_cell(r, 'coverage', 3)} | {_cell(r, 'brier', 3)} | {_cell(r, 'ece', 3)} |"
                 )
+    if gap is not None:
+        lines += gap_markdown(gap, meta["gap_bucket"])
     lines += [
         "",
         "Note: bri-wsm still has about 2 percent of stops with arrival or departure "
         "inversions of two minutes or more (Stage 1), so its actual times carry extra noise.",
     ]
     path.write_text("\n".join(lines) + "\n")
+
+
+def gap_markdown(gap: pd.DataFrame, meta: dict) -> list[str]:
+    lines = [
+        "",
+        "## Gap-bucket P(miss) on the interchange pairs (test block)",
+        "",
+        f"MCT from {meta['mct_source']} (sequence {meta['mct_seq']}, generated "
+        f"{meta['mct_generated']}), TSI over MSN by the real TOC pair of each pair. Buckets of "
+        "planned slack over MCT, fitted on train pairs (including held-out outbound routes' own "
+        "earlier dates). 'not arrived' means no actual arrival of the inbound by the forecast "
+        "time.",
+        "",
+        "| minutes before | pairs | hub | n | miss rate | Brier | ECE |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for r in gap.itertuples(index=False):
+        row = pd.Series(r._asdict())
+        n = int(row["n"]) if not pd.isna(row.get("n")) else 0
+        lines.append(
+            f"| {r.horizon_min} | {r.subset} | {r.group} | {n} | "
+            f"{row['miss_rate']:.3f} | {_cell(row, 'brier', 3)} | {_cell(row, 'ece', 3)} |"
+        )
+    return lines

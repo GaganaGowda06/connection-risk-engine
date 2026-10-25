@@ -6,6 +6,9 @@ persistence      lateness at T carried to arrival (no actual yet means on time);
 historical       the lateness distribution of the same route and arrival hour (falling back to the
                  route, then to the network, when a cell has fewer than MIN_CELL services):
                  median, 10% and 90% quantiles, and the late share. It ignores the state at T.
+shrunk_persistence  persistence pulled toward the historical route-hour median: w * persistence +
+                 (1 - w) * median, with one weight w per horizon fitted on training rows to
+                 minimise MAE; range and late rate are fitted like persistence's.
 darwin_forecast  reference only, not a GOAL baseline: Darwin's own latest forecast at T, with the
                  same residual-quantile range and the same binned late rate.
 
@@ -23,7 +26,8 @@ LATE_MIN = 15.0
 MIN_CELL = 30
 LOW_Q, HIGH_Q = 0.10, 0.90
 BIN_EDGES = np.array([-np.inf, 0.0, 2.0, 5.0, 10.0, 15.0, 30.0, np.inf])
-METHODS = ("persistence", "historical", "darwin_forecast")
+METHODS = ("persistence", "historical", "shrunk_persistence", "darwin_forecast")
+WEIGHT_GRID = np.round(np.arange(0.0, 1.0001, 0.05), 2)
 
 
 @dataclass
@@ -36,6 +40,7 @@ class Fitted:
     )
     hist_route: dict[str, tuple[float, float, float, float, int]] = field(default_factory=dict)
     hist_all: tuple[float, float, float, float, int] = (0.0, 0.0, 0.0, 0.0, 0)
+    shrink_w: dict[int, float] = field(default_factory=dict)
     fit_rows: int = 0
     fit_services: int = 0
 
@@ -61,6 +66,22 @@ def _stats(x: np.ndarray) -> tuple[float, float, float, float, int]:
     return (float(q[0]), float(q[1]), float(q[2]), (float((x >= LATE_MIN).sum()) + 1) / (n + 2), n)
 
 
+def _fit_range(f: "Fitted", name: str, h: int, pt: np.ndarray, y: np.ndarray) -> None:
+    """Residual quantiles and the binned late rate of one point forecast at one horizon."""
+    resid = y - pt
+    q = np.quantile(resid, [LOW_Q, HIGH_Q]) if len(y) else np.array([0.0, 0.0])
+    f.resid_q[(name, h)] = (float(q[0]), float(q[1]))
+    bins = np.digitize(pt, BIN_EDGES[1:-1])
+    rate = np.full(len(BIN_EDGES) - 1, np.nan)
+    late = (y >= LATE_MIN).astype(float)
+    for b in range(len(rate)):
+        sel = bins == b
+        if sel.any():
+            rate[b] = (late[sel].sum() + 1) / (sel.sum() + 2)
+    overall = (late.sum() + 1) / (len(late) + 2) if len(late) else 0.5
+    f.late_by_bin[(name, h)] = np.where(np.isnan(rate), overall, rate)
+
+
 def fit(train: pd.DataFrame) -> Fitted:
     """Fit every baseline on training-date rows that have a target and a known schedule."""
     t = train[train["has_target"] & train["schedule_known"]].copy()
@@ -71,18 +92,7 @@ def fit(train: pd.DataFrame) -> Fitted:
     for h in horizons:
         m = (t["horizon_min"] == h).to_numpy()
         for name in ("persistence", "darwin_forecast"):
-            resid = y[m] - points[name][m]
-            q = np.quantile(resid, [LOW_Q, HIGH_Q]) if m.any() else np.array([0.0, 0.0])
-            fitted.resid_q[(name, h)] = (float(q[0]), float(q[1]))
-            bins = np.digitize(points[name][m], BIN_EDGES[1:-1])
-            rate = np.full(len(BIN_EDGES) - 1, np.nan)
-            late = (y[m] >= LATE_MIN).astype(float)
-            for b in range(len(rate)):
-                sel = bins == b
-                if sel.any():
-                    rate[b] = (late[sel].sum() + 1) / (sel.sum() + 2)
-            overall = (late.sum() + 1) / (len(late) + 2) if len(late) else 0.5
-            fitted.late_by_bin[(name, h)] = np.where(np.isnan(rate), overall, rate)
+            _fit_range(fitted, name, h, points[name][m], y[m])
     # one row per service for the historical cells, so a horizon does not weight a service
     svc = t.sort_values("horizon_min").drop_duplicates(["rid", "route"])
     ys = _minutes(svc["target_late_s"])
@@ -91,6 +101,14 @@ def fit(train: pd.DataFrame) -> Fitted:
         fitted.hist_route[route] = _stats(_minutes(g["target_late_s"]))
     for (route, hour), g in svc.groupby(["route", "arr_hour_local"]):
         fitted.hist_cell[(route, int(hour))] = _stats(_minutes(g["target_late_s"]))
+    median = _hist_median(fitted, t)
+    for h in horizons:
+        m = (t["horizon_min"] == h).to_numpy()
+        per, med = points["persistence"][m], median[m]
+        mae = [np.abs(w * per + (1 - w) * med - y[m]).mean() for w in WEIGHT_GRID]
+        w = float(WEIGHT_GRID[int(np.argmin(mae))])
+        fitted.shrink_w[h] = w
+        _fit_range(fitted, "shrunk_persistence", h, w * per + (1 - w) * med, y[m])
     return fitted
 
 
@@ -104,12 +122,25 @@ def _hist_lookup(f: Fitted, route: str, hour: int) -> tuple[float, float, float,
     return f.hist_all
 
 
+def _hist_median(f: Fitted, df: pd.DataFrame) -> np.ndarray:
+    return np.array(
+        [
+            _hist_lookup(f, r, h)[1]
+            for r, h in zip(df["route"].to_numpy(), df["arr_hour_local"].to_numpy(), strict=True)
+        ],
+        dtype=float,
+    )
+
+
 def predict(f: Fitted, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Point, 80% range and P(late >= 15) for each method, aligned to df's rows."""
     out: dict[str, pd.DataFrame] = {}
     points = point_forecasts(df)
     horizon = df["horizon_min"].to_numpy()
-    for name in ("persistence", "darwin_forecast"):
+    median = _hist_median(f, df)
+    w = np.array([f.shrink_w.get(h, 1.0) for h in horizon])
+    points["shrunk_persistence"] = w * points["persistence"] + (1 - w) * median
+    for name in ("persistence", "shrunk_persistence", "darwin_forecast"):
         pt = points[name]
         lo_off = np.array([f.resid_q.get((name, h), (0.0, 0.0))[0] for h in horizon])
         hi_off = np.array([f.resid_q.get((name, h), (0.0, 0.0))[1] for h in horizon])

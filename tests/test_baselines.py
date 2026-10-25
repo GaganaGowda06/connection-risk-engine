@@ -5,7 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from rail_risk.baselines import gap_bucket, models, scoring
+from rail_risk.baselines import gap_bucket, models, pairs, scoring
 from rail_risk.baselines.services import route_services, snapshot_rows
 from rail_risk.baselines.split import expected_labels, is_complete, network_split
 from rail_risk.baselines.state import ENGINES, state_reference
@@ -181,19 +181,20 @@ def test_fit_ignores_rows_without_target_or_known_schedule():
 
 def test_gap_bucket_needs_a_parsed_mct_and_labels_misses(tmp_path):
     with pytest.raises(gap_bucket.MctMissing):
-        gap_bucket.load_mct(tmp_path / "none.csv")
+        gap_bucket.load_mct_table(tmp_path / "none.csv")
     t = pd.Timestamp("2026-10-14 10:00", tz="UTC")
     m = pd.Timedelta(minutes=1)
     pairs = pd.DataFrame(
         {
             "hub": ["H"] * 3,
+            "mct_min": [10.0] * 3,
             "plan_arr_in": [t] * 3,
             "plan_dep_out": [t + 12 * m, t + 12 * m, t + 12 * m],
             "act_arr_in": [t, t + 6 * m, t],
             "act_dep_out": [t + 12 * m, t + 12 * m, pd.NaT],
         }
     )
-    out = gap_bucket.label_pairs(pairs, {"H": 10.0})  # slack 2 minutes
+    out = gap_bucket.label_pairs(pairs)  # slack 2 minutes
     assert list(out["miss"]) == [0.0, 1.0, 1.0]  # late inbound misses; a cancelled outbound too
     model = gap_bucket.fit_buckets(out)
     assert 0 < gap_bucket.predict_buckets(model, out)[0] < 1
@@ -251,3 +252,32 @@ def test_committed_run_used_only_train_pool_days():
     failure = json.load(open("reports/stage2_failure_tests.json"))
     assert failure["oot_week_or_winter_test_dates_in_snapshots"] == 0
     assert failure["fit_dates_outside_train_pool"] == 0
+
+
+def test_shrunk_persistence_weight_is_fitted_on_train_and_bounded():
+    train = snap_table(seed=1)
+    fitted = models.fit(train)
+    assert set(fitted.shrink_w) == {15, 60}
+    assert all(0.0 <= w <= 1.0 for w in fitted.shrink_w.values())
+    # pure persistence is exact when the state equals the outcome, so no shrinkage is chosen
+    exact = train.assign(last_actual_late_s=train["target_late_s"])
+    assert models.fit(exact).shrink_w == {15: 1.0, 60: 1.0}
+    # a state with no information gets pulled all the way to the history
+    blind = train.assign(last_actual_late_s=0.0)
+    assert min(models.fit(blind).shrink_w.values()) < 0.5
+
+
+def test_pair_state_flags_use_only_messages_at_or_before_forecast_time():
+    t = pd.Timestamp("2026-10-14 10:00", tz="UTC")
+    m = pd.Timedelta(minutes=1)
+    p = pd.DataFrame(
+        {
+            "plan_arr_in": [t, t],
+            "in_arr_msg_time": [t - 20 * m, t - 5 * m],  # arrived 20 and 5 minutes early
+            "in_seen": [t - 90 * m, t - 10 * m],
+            "out_seen": [t - 90 * m, t - 90 * m],
+        }
+    )
+    k = pairs.known_at(p, 15)
+    assert list(k["inbound_arrived_by_t"]) == [True, False]
+    assert list(k["schedule_known"]) == [True, False]  # second inbound schedule seen after T

@@ -106,3 +106,38 @@ def score_all(
                 res = score_group(sh[mask.loc[sh.index]], resamples, rng, confidence)
                 rows.append({"method": method, "group": name, "horizon_min": int(horizon), **res})
     return pd.DataFrame(rows)
+
+
+def pair_stats(pairs: pd.DataFrame, p: np.ndarray) -> pd.DataFrame:
+    """Per-pair Brier and calibration terms for P(miss); MAE and coverage do not apply."""
+    zero = np.zeros(len(pairs))
+    return pd.DataFrame(
+        {
+            "ssd": pairs["ssd"].to_numpy(),
+            "hub": pairs["hub"].to_numpy(),
+            "arrived": pairs["inbound_arrived_by_t"].to_numpy(),
+            "abs": zero,
+            "cov": zero,
+            "wid": zero,
+            "brier": (p - pairs["miss"].to_numpy()) ** 2,
+            "bin": np.minimum((p * BINS).astype(int), BINS - 1),
+            "late": pairs["miss"].to_numpy(),
+            "p": p,
+        }
+    )
+
+
+def score_pairs(
+    st: pd.DataFrame, hubs: list[str], resamples: int, seed: int, confidence: float
+) -> pd.DataFrame:
+    """Brier and ECE with date-bootstrap CIs, per hub and for all hubs, over all pairs and over
+    the pairs whose inbound had not arrived at forecast time."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for subset, sub in (("all_pairs", st), ("inbound_not_arrived", st[~st["arrived"]])):
+        groups = {h: sub["hub"] == h for h in hubs} | {"all_hubs": pd.Series(True, index=sub.index)}
+        for name, mask in groups.items():
+            res = score_group(sub[mask], resamples, rng, confidence)
+            res = {k: v for k, v in res.items() if not k.startswith(("mae", "coverage", "width"))}
+            rows.append({"subset": subset, "group": name, **res})
+    return pd.DataFrame(rows)

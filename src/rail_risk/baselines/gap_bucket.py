@@ -4,37 +4,39 @@ A pair is an inbound service reaching a hub and an outbound service leaving it. 
 is the outbound public departure minus the inbound public arrival; a passenger plans a pair when
 that gap is at least the minimum connection time (MCT) of the hub. A miss is the outbound train
 leaving before the inbound arrival plus the MCT, or never running. The baseline is the training
-miss rate inside buckets of (planned gap minus MCT), per hub. MCT is an input read from a parsed
-RDG file (data/ref/mct.csv: hub, minutes, source); nothing is assumed here.
+miss rate inside buckets of (planned gap minus MCT), per hub. MCT is an input read from the RDG
+MSN and TSI files (data/ref/mct.csv, ingest/mct.py); nothing is assumed here.
 """
-
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from rail_risk.ingest.mct import MctError, load_mct_table, mct_lookup
+
 BUCKET_EDGES = np.array([0.0, 5.0, 10.0, 20.0, 40.0, 60.0])
-MCT_FILE = Path("data/ref/mct.csv")
+MctMissing = MctError
+
+__all__ = ["BUCKET_EDGES", "MctMissing", "fit_buckets", "label_pairs", "load_mct_table"]
 
 
-class MctMissing(RuntimeError):
-    pass
+def pair_mct(pairs: pd.DataFrame, table: pd.DataFrame) -> pd.Series:
+    """MCT per pair from the real TOC codes of its two services (TSI over MSN); NaN when unknown."""
+    cache: dict[tuple[str, str, str], float] = {}
+    out = []
+    for key in zip(pairs["hub"], pairs["in_toc"], pairs["out_toc"], strict=True):
+        if key not in cache:
+            v = mct_lookup(table, *key)
+            cache[key] = float("nan") if v is None else v
+        out.append(cache[key])
+    return pd.Series(out, index=pairs.index, dtype="float64")
 
 
-def load_mct(path: Path = MCT_FILE) -> dict[str, float]:
-    if not path.exists():
-        raise MctMissing(
-            f"{path} not found: parse the RDG MSN and TSI files first (no MCT value is assumed)"
-        )
-    df = pd.read_csv(path)
-    return dict(zip(df["hub"], df["minutes"].astype(float), strict=True))
+def label_pairs(pairs: pd.DataFrame) -> pd.DataFrame:
+    """pairs: hub, mct_min, plan_arr_in, plan_dep_out, act_arr_in, act_dep_out (NaT = never left).
 
-
-def label_pairs(pairs: pd.DataFrame, mct: dict[str, float]) -> pd.DataFrame:
-    """pairs: hub, plan_arr_in, plan_dep_out, act_arr_in, act_dep_out (NaT when it never ran)."""
-    out = pairs.copy()
-    m = out["hub"].map(mct)
-    out["mct_min"] = m
+    Pairs with no MCT are dropped (fail closed), never given a default."""
+    out = pairs[pairs["mct_min"].notna()].copy()
+    m = out["mct_min"]
     out["slack_min"] = (out["plan_dep_out"] - out["plan_arr_in"]).dt.total_seconds() / 60.0 - m
     arrive = out["act_arr_in"] + pd.to_timedelta(m, unit="m")
     out["miss"] = (out["act_dep_out"].isna() | (out["act_dep_out"] < arrive)).astype(float)
