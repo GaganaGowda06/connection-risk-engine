@@ -1,6 +1,6 @@
 {
- "run_id": "0e6ba55ed863",
- "git_head": "4dece71",
+ "run_id": "8d3c1769aec3",
+ "git_head": "0e74539",
  "engine": "duckdb",
  "split": {
   "train": [
@@ -23,15 +23,74 @@
  "fit_services": 147652,
  "test_rows": 59676,
  "build": {
-  "built": 0,
-  "skipped_existing": 143,
+  "built": 143,
+  "skipped_existing": 0,
   "missing_days": 1,
-  "rows": 0
+  "rows": 1208652
  },
  "missing_days": [
   "2025-12-25"
  ],
- "gap_bucket_status": "blocked: data/ref/mct.csv not found: parse the RDG MSN and TSI files first (no MCT value is assumed)",
+ "gap_bucket": {
+  "status": "scored",
+  "mct_source": "RJTTF995.ZIP",
+  "mct_seq": "995",
+  "mct_generated": "2026-10-20",
+  "pairs_built": {
+   "built": 130,
+   "skipped_existing": 0,
+   "pairs": 127155
+  },
+  "train_pairs": 39683,
+  "pairs_without_mct": {
+   "train": 0,
+   "test": 0
+  },
+  "mct_used": [
+   {
+    "hub": "BHM",
+    "in_toc": "XC",
+    "out_toc": "LM",
+    "mct_min": 12.0
+   },
+   {
+    "hub": "BHM",
+    "in_toc": "XC",
+    "out_toc": "VT",
+    "mct_min": 12.0
+   },
+   {
+    "hub": "BRI",
+    "in_toc": "GW",
+    "out_toc": "GW",
+    "mct_min": 10.0
+   },
+   {
+    "hub": "BRI",
+    "in_toc": "GW",
+    "out_toc": "XC",
+    "mct_min": 10.0
+   },
+   {
+    "hub": "MAN",
+    "in_toc": "TP",
+    "out_toc": "AW",
+    "mct_min": 10.0
+   },
+   {
+    "hub": "MAN",
+    "in_toc": "TP",
+    "out_toc": "NT",
+    "mct_min": 10.0
+   },
+   {
+    "hub": "MAN",
+    "in_toc": "TP",
+    "out_toc": "TP",
+    "mct_min": 10.0
+   }
+  ]
+ },
  "routes_without_test_rows": [],
  "held_out": [
   "bhm-liv",

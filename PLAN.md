@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 2 (baselines)**; Stage 1 (data foundation) is met, sub-steps 1.1 and 1.2 done, 1.3 open.
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 3 (route-agnostic LightGBM)**; Stages 1 and 2 are met.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -55,7 +55,7 @@ Done means: at least 20 routes, 5 operators, short, medium and long journeys and
 Progress (details and evidence in DECISIONS.md, 2026-10-24):
 - 1.1 done: archive probe and mirror.
 - 1.2 done: mirror of the whole window (4,342 files) plus six boundary and clock-change days, manifest and integrity check; network-wide streaming extraction to Parquet (schedules, schedule_points, stop_updates, stop_actuals, associations, deactivations) with the split column; TIPLOC to CRS from open files; one pandera cleaning module run on 187 service dates; coverage; HSP spot-check (730 of 730 arrivals and departures exact on 50 trains of three held-out routes); weather source recommendation (Open-Meteo, not ingested).
-- 1.3 done (2026-10-25): 25-route table in config/routes.yaml; coverage (reports/stage1_coverage.csv); sequence-flag cause found and a general resolution rule applied (DECISIONS.md). Still to do, not blocking Stage 2 baselines: parse MSN and TSI for minimum connection times (needed before Stage 4), the rest of 2026-10-24, planned-closure and engineering information if a source is found.
+- 1.3 done (2026-10-25): 25-route table in config/routes.yaml; coverage (reports/stage1_coverage.csv); sequence-flag cause found and a general resolution rule applied (DECISIONS.md). MSN and TSI parsed in Stage 2 (data/ref/mct.csv). Still to do, not blocking: the rest of 2026-10-24, planned-closure and engineering information if a source is found.
 - Stage 1 done-means, checked 2026-10-25:
   - Test 1 (breadth): MET. 25 routes, 11 operators (10 TOC codes), 5 hubs, short, medium and long, four interchange pairs; every route has trains in all 7 window months (reports/stage1_coverage.csv). Thin: mcv-liv (21 trains in its quietest month), man-glc (54).
   - Test 7 (data quality): MET with a caveat. The same pandera checks run on every route and the network (reports/stage1_cleaning.csv), a test fails on any CRS or route literal in the clean code. PLAN set no numeric pass threshold, so "passes" means checked and published; residual flags: duplicates 19,608 of 1.78 billion updates, station matching 100% on route services, impossible negative dwell 31,443 of 4.76 million stops network-wide (bri-wsm 175 of 7,864 is the highest route), 2.4% of passenger schedules are missing data.
@@ -70,11 +70,11 @@ Scope: provision Oracle Cloud Always Free (2 OCPU, 12 GB, resident memory above 
 Done means: capture running on Oracle; the Mac capture stopped only after an overlap check shows no hole at the switch; capture loss measured against the archive for the same hours and stated with the days observed (target 7 days, under 1% loss).
 Open issues carried to 6b: the Mac capture on 2026-10-16 was short in hours 12 to 16 (message ratios 0.89, 0.32, 0.57, 0.74, 0.75 against the archive) and had 2.4 to 2.5 times the archive's messages in hours 17 and 18 (duplicates or redelivery, cause not checked). Both must be understood before the loss figure is trusted.
 
-### Stage 2: baselines (supports tests 2 to 5) - CURRENT, mostly done
-Scope: persistence, historical route-hour baseline and gap-bucket baseline on every route, fitted on earlier dates only; split=oot_week rows excluded.
-Done means: baseline tables per route and horizon with bootstrap CIs by service date, reproducible from one command, so tests 2 to 5 have a fixed bar.
-Status 2026-10-25 (evidence in DECISIONS.md): snapshots, split, leakage check (0 mismatches on 894 real rows), persistence, historical and a Darwin-forecast reference, scored on the test block with bootstrap CIs, all from `rail-risk evaluate-baselines` (run 0e6ba55ed863 (commit 4dece71) at the time of writing, reports/baselines/stage2_baselines.md). NOT done: the gap-bucket P(miss) baseline, because the MSN and TSI files need a National Rail Data Portal account and no MCT value may be assumed; test 5 has no bar until that source is provided. Stage 2 is therefore not closed.
-Open to close it: I provide the timetable feed (or another licensed MCT source); parse MSN and TSI for BHM, MAN and BRI into data/ref/mct.csv; score the gap-bucket baseline on the four interchange pairs.
+### Stage 2: baselines (supports tests 2 to 5) - MET 2026-10-25
+Scope: persistence, historical route-hour baseline, shrunk persistence and gap-bucket baseline on every route or interchange pair, fitted on earlier dates only; split=oot_week and winter_test rows excluded.
+Done means: baseline tables per route and horizon with bootstrap CIs by service date, reproducible from one command, so tests 2 to 5 have a fixed bar. Met: `rail-risk evaluate-baselines` writes reports/baselines/stage2_baselines.{csv,md,json} and stage2_gap_bucket.csv (run 8d3c1769aec3, commit 0e74539).
+Evidence (DECISIONS.md, 2026-10-25): DuckDB chosen over Polars and Spark; split train 2025-12-01 to 2026-09-23, validation 2026-09-25 to 2026-10-08, test 2026-10-10 to 2026-10-16; leakage check 0 mismatches on 894 real snapshots; MCT from RJTTF995.ZIP (BHM 12, MAN 10, BRI 10, no TSI overrides); gap-bucket Brier 0.085 (BHM), 0.096 (MAN), 0.052 (BRI) with the ECE of each recorded; shrunk persistence is the strongest point forecast at 60 minutes.
+Caveats: the NRDP licence text as accepted was not readable (README and DECISIONS say so); the NRDP account needs a download by 2026-11-24 and the portal closes later in 2026; no inbound arrived early enough for the not-yet-arrived subset to differ from all pairs.
 
 ### Stage 3: route-agnostic LightGBM (test 2)
 Scope: one model, no route_id, leave-route-group-out training; split=oot_week never used.

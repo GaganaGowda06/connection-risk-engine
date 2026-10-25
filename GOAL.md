@@ -41,4 +41,4 @@ Anchoring, passivity, overconfidence on familiar data, reflex apologies, missing
 ## Done means
 Tests 1 to 9 pass, with evidence from real runs and run ids, stated honestly in the README.
 
-Current plan: see PLAN.md, now at Stage 2 (baselines)
+Current plan: see PLAN.md, now at Stage 3 (route-agnostic LightGBM)

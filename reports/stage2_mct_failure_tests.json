@@ -1,0 +1,50 @@
+{
+ "zip": "RJTTF995.ZIP",
+ "station_missing_from_msn": {
+  "lookup_ZZZ": null,
+  "pairs_dropped": 1
+ },
+ "toc_pair_missing_from_tsi": {
+  "tsi_row": "AFK SE->SN = 6",
+  "lookup_with_tsi_row": 6.0,
+  "lookup_pair_not_in_tsi_falls_back_to_msn": 5.0,
+  "msn_value": 5.0,
+  "unlisted_reverse_pair_in_tsi": false,
+  "hub_pairs_with_tsi_rows": 0
+ },
+ "corrupt_zip": {
+  "truncated_zip": {
+   "result": "raised",
+   "error": "DtdError: truncated_zip.ZIP is not a readable ZIP: File is not a zip file"
+  },
+  "garbage_file": {
+   "result": "raised",
+   "error": "DtdError: garbage_file.ZIP is not a readable ZIP: File is not a zip file"
+  },
+  "empty_file": {
+   "result": "raised",
+   "error": "DtdError: empty_file.ZIP is not a readable ZIP: File is not a zip file"
+  },
+  "bit_flips_mid_file": {
+   "result": "raised",
+   "error": "DtdError: corrupt member RJTTF995.MCA in bit_flips_mid_file.ZIP"
+  }
+ },
+ "fetch_script_on_truncated_zip": {
+  "exit_code": 1,
+  "stderr": "FAILED: truncated_zip.ZIP is not a readable ZIP: File is not a zip file",
+  "mct_csv_unchanged": true
+ },
+ "header_without_file_spec_05": {
+  "result": "raised",
+  "error": "MctError: MSN header with FILE-SPEC=05 in cols 31-42 not found"
+ },
+ "expired_or_bad_token": {
+  "result": "raised",
+  "error": "DtdError: NRDP rejected the token: HTTP 401"
+ },
+ "bad_password": {
+  "result": "raised",
+  "error": "DtdError: NRDP authentication failed: HTTP 401"
+ }
+}
