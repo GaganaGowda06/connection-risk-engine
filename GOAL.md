@@ -41,4 +41,4 @@ Anchoring, passivity, overconfidence on familiar data, reflex apologies, missing
 ## Done means
 Tests 1 to 9 pass, with evidence from real runs and run ids, stated honestly in the README.
 
-Current plan: see PLAN.md, now at Stage 6 (live service on an always-on host)
+Current plan: see PLAN.md, still at Stage 6 (local service and out-of-time replay; test 9 met, test 6a not met under the strict rule)
