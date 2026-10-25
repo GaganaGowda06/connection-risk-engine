@@ -1,0 +1,147 @@
+{
+ "train_days": 31,
+ "train_rows": 204587,
+ "val_rows": 117208,
+ "validation_mae": [
+  {
+   "option": "residual",
+   "horizon_min": 15,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 2.158
+  },
+  {
+   "option": "residual",
+   "horizon_min": 15,
+   "group": "train_routes",
+   "n": 16256,
+   "mae": 1.777
+  },
+  {
+   "option": "residual",
+   "horizon_min": 60,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 3.239
+  },
+  {
+   "option": "residual",
+   "horizon_min": 60,
+   "group": "train_routes",
+   "n": 16254,
+   "mae": 2.674
+  },
+  {
+   "option": "raw",
+   "horizon_min": 15,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 2.157
+  },
+  {
+   "option": "raw",
+   "horizon_min": 15,
+   "group": "train_routes",
+   "n": 16256,
+   "mae": 1.779
+  },
+  {
+   "option": "raw",
+   "horizon_min": 60,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 3.313
+  },
+  {
+   "option": "raw",
+   "horizon_min": 60,
+   "group": "train_routes",
+   "n": 16254,
+   "mae": 2.684
+  },
+  {
+   "option": "recovery",
+   "horizon_min": 15,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 2.211
+  },
+  {
+   "option": "recovery",
+   "horizon_min": 15,
+   "group": "train_routes",
+   "n": 16256,
+   "mae": 1.838
+  },
+  {
+   "option": "recovery",
+   "horizon_min": 60,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 3.4
+  },
+  {
+   "option": "recovery",
+   "horizon_min": 60,
+   "group": "train_routes",
+   "n": 16254,
+   "mae": 2.775
+  },
+  {
+   "option": "shrunk_persistence",
+   "horizon_min": 15,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 2.354
+  },
+  {
+   "option": "shrunk_persistence",
+   "horizon_min": 15,
+   "group": "train_routes",
+   "n": 16256,
+   "mae": 2.283
+  },
+  {
+   "option": "shrunk_persistence",
+   "horizon_min": 60,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 3.45
+  },
+  {
+   "option": "shrunk_persistence",
+   "horizon_min": 60,
+   "group": "train_routes",
+   "n": 16254,
+   "mae": 2.963
+  },
+  {
+   "option": "persistence",
+   "horizon_min": 15,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 2.354
+  },
+  {
+   "option": "persistence",
+   "horizon_min": 15,
+   "group": "train_routes",
+   "n": 16256,
+   "mae": 2.283
+  },
+  {
+   "option": "persistence",
+   "horizon_min": 60,
+   "group": "held_out",
+   "n": 3282,
+   "mae": 3.574
+  },
+  {
+   "option": "persistence",
+   "horizon_min": 60,
+   "group": "train_routes",
+   "n": 16254,
+   "mae": 3.023
+  }
+ ]
+}

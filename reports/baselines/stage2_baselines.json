@@ -1,6 +1,6 @@
 {
- "run_id": "8d3c1769aec3",
- "git_head": "0e74539",
+ "run_id": "0e3633af27af",
+ "git_head": "664185a",
  "engine": "duckdb",
  "split": {
   "train": [
@@ -19,8 +19,8 @@
    7
   ]
  },
- "fit_rows": 980740,
- "fit_services": 147652,
+ "fit_rows": 980224,
+ "fit_services": 147566,
  "test_rows": 59676,
  "build": {
   "built": 143,
