@@ -21,6 +21,7 @@ from rail_risk.ingest.pport_extract import train_pool_table
 
 PAIRS_DIR = "pairs"
 MAX_GAP_MIN = 180.0
+MAX_ACTUAL_GAP = pd.Timedelta(hours=12)
 PAIR_COLS = [
     "ssd", "hub", "outbound", "in_rid", "out_rid", "in_toc", "out_toc", "plan_arr_in",
     "plan_dep_out", "act_arr_in", "act_dep_out", "in_arr_msg_time", "in_seen", "out_seen",
@@ -54,6 +55,20 @@ def _actuals(root: Path, ssd: date) -> pd.DataFrame:
     return a.to_pandas() if a.num_rows else pd.DataFrame(columns=cols)
 
 
+def _nearest(p: pd.DataFrame, actuals: pd.DataFrame, rid: str, tpl: str, plan: str, col: str):
+    """Attach the actual nearest the plan (the feed can carry a second row a day later); drop
+    candidates more than 12 hours from the plan. Pairs with no usable actual keep NaT."""
+    p = p.reset_index(drop=True).assign(_i=lambda x: x.index)
+    m = p[["_i", rid, tpl, plan]].merge(
+        actuals, left_on=[rid, tpl], right_on=["rid", "tpl"], how="inner"
+    )
+    m = m[(m[col] - m[plan]).abs() <= MAX_ACTUAL_GAP]
+    m = m.assign(_gap=(m[col] - m[plan]).abs()).sort_values(["_i", "_gap"])
+    m = m.drop_duplicates("_i")
+    extra = [c for c in actuals.columns if c not in ("rid", "tpl")]
+    return p.merge(m[["_i", *extra]], on="_i", how="left").drop(columns="_i")
+
+
 def build_pairs_day(
     root: Path, ssd: date, routes: RouteSet, tiploc_crs: pd.DataFrame
 ) -> pd.DataFrame:
@@ -62,11 +77,11 @@ def build_pairs_day(
         return pd.DataFrame(columns=PAIR_COLS)
     ran = set(actuals.loc[actuals["actual"].notna(), "rid"])
     arr = actuals[(actuals["event"] == "arr") & actuals["actual"].notna()]
-    arr = arr.groupby(["rid", "tpl"], as_index=False).agg(
-        act_arr_in=("actual", "max"), in_arr_msg_time=("first_actual_message_time", "min")
-    )
+    arr = arr.rename(
+        columns={"actual": "act_arr_in", "first_actual_message_time": "in_arr_msg_time"}
+    )[["rid", "tpl", "act_arr_in", "in_arr_msg_time"]]
     dep = actuals[(actuals["event"] == "dep") & actuals["actual"].notna()]
-    dep = dep.groupby(["rid", "tpl"], as_index=False).agg(act_dep_out=("actual", "max"))
+    dep = dep.rename(columns={"actual": "act_dep_out"})[["rid", "tpl", "act_dep_out"]]
     frames = []
     for ix in routes.interchanges:
         in_spec, out_spec = interchange_specs(routes, ix, tiploc_crs)
@@ -85,12 +100,8 @@ def build_pairs_day(
         gap = (p["pt_dep_origin"] - p["pt_arr"]).dt.total_seconds() / 60.0
         p = p[(gap >= 0) & (gap <= MAX_GAP_MIN)]
         p = p[p["rid_out"].isin(ran)]
-        p = p.merge(arr, left_on=["rid_in", "dest_tpl"], right_on=["rid", "tpl"], how="left").drop(
-            columns=["rid", "tpl"]
-        )
-        p = p.merge(
-            dep, left_on=["rid_out", "origin_tpl"], right_on=["rid", "tpl"], how="left"
-        ).drop(columns=["rid", "tpl"])
+        p = _nearest(p, arr, "rid_in", "dest_tpl", "pt_arr", "act_arr_in")
+        p = _nearest(p, dep, "rid_out", "origin_tpl", "pt_dep_origin", "act_dep_out")
         p = p.rename(
             columns={
                 "rid_in": "in_rid",

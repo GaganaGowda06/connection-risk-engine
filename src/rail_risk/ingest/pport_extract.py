@@ -190,10 +190,12 @@ def train_pool_table(
     table: str,
     columns: list[str] | None = None,
     service_dates: list[date] | None = None,
+    where: "ds.Expression | None" = None,
 ) -> pa.Table:
     """The only way a model stage reads a table: train_pool rows, never oot_week or winter_test.
 
-    `service_dates` limits the read to those partitions (a day at a time keeps memory small)."""
+    `service_dates` limits the read to those partitions (a day at a time keeps memory small);
+    `where` adds a row filter on top of the split filter."""
     if service_dates is None:
         parts = sorted((out / table).glob("service_date=*/*.parquet"))
     else:
@@ -203,4 +205,5 @@ def train_pool_table(
     if not parts:
         return pa.table({})
     dataset = ds.dataset([str(p) for p in parts], format="parquet")
-    return dataset.to_table(columns=columns, filter=ds.field("split") == "train_pool")
+    keep = ds.field("split") == "train_pool"
+    return dataset.to_table(columns=columns, filter=keep if where is None else keep & where)

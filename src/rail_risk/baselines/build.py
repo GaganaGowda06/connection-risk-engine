@@ -21,14 +21,33 @@ from rail_risk.logging import get_logger
 SNAP_DIR = "snapshots"
 
 
+MAX_TARGET_GAP = pd.Timedelta(hours=12)
+
+
 def day_targets(root: Path, ssd: date) -> pd.DataFrame:
-    """Actual arrival per (rid, stop): the last actual arrival reported for the stop."""
+    """Every distinct actual arrival per (rid, stop). The extract can hold a second row for the same
+    rid and stop dated one day later (a day-roll error in the feed), so the choice between them is
+    made against the planned time in pick_targets, not here."""
     a = train_pool_table(root, "stop_actuals", ["rid", "tpl", "event", "actual"], [ssd])
     if a.num_rows == 0:
         return pd.DataFrame(columns=["rid", "tpl", "actual"])
     df = a.to_pandas()
     df = df[(df["event"] == "arr") & df["actual"].notna()]
-    return df.groupby(["rid", "tpl"], as_index=False)["actual"].max()
+    return df[["rid", "tpl", "actual"]].drop_duplicates()
+
+
+def pick_targets(out: pd.DataFrame, targets: pd.DataFrame) -> pd.DataFrame:
+    """Attach the actual arrival nearest the planned arrival; none when the nearest is over 12
+    hours away. out has rid, route, horizon_min, dest_tpl, pt_arr; targets has rid, dest_tpl,
+    actual_arr."""
+    keys = ["rid", "route", "horizon_min"]
+    both = out.merge(targets, on=["rid", "dest_tpl"], how="left")
+    gap = (both["actual_arr"] - both["pt_arr"]).abs()
+    both = both.assign(_gap=gap).sort_values([*keys, "_gap"], na_position="last")
+    both = both.drop_duplicates(keys, keep="first")
+    far = both["_gap"] > MAX_TARGET_GAP
+    both.loc[far, "actual_arr"] = pd.NaT
+    return both.drop(columns="_gap").sort_index()
 
 
 def build_day(
@@ -45,7 +64,7 @@ def build_day(
     state = ENGINES[engine](updates, known)
     out = snaps.merge(state, on=["rid", "route", "horizon_min"], how="left")
     targets = day_targets(root, ssd).rename(columns={"tpl": "dest_tpl", "actual": "actual_arr"})
-    out = out.merge(targets, on=["rid", "dest_tpl"], how="left")
+    out = pick_targets(out, targets)
     out["target_late_s"] = (out["actual_arr"] - out["pt_arr"]).dt.total_seconds()
     out["has_target"] = out["target_late_s"].notna()
     local = out["pt_arr"].dt.tz_convert("Europe/London")

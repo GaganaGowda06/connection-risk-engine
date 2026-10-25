@@ -5,7 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from rail_risk.baselines import gap_bucket, models, pairs, scoring
+from rail_risk.baselines import build, gap_bucket, models, pairs, scoring
 from rail_risk.baselines.services import route_services, snapshot_rows
 from rail_risk.baselines.split import expected_labels, is_complete, network_split
 from rail_risk.baselines.state import ENGINES, state_reference
@@ -281,3 +281,27 @@ def test_pair_state_flags_use_only_messages_at_or_before_forecast_time():
     k = pairs.known_at(p, 15)
     assert list(k["inbound_arrived_by_t"]) == [True, False]
     assert list(k["schedule_known"]) == [True, False]  # second inbound schedule seen after T
+
+
+def test_target_is_the_arrival_nearest_the_plan_not_the_latest():
+    t0 = pd.Timestamp("2026-09-25 13:25", tz="UTC")
+    out = pd.DataFrame(
+        {
+            "rid": ["a", "b", "c"],
+            "route": "r",
+            "horizon_min": 15,
+            "dest_tpl": "X",
+            "pt_arr": [t0] * 3,
+        }
+    )
+    day = pd.Timedelta(days=1)
+    targets = pd.DataFrame(
+        {
+            "rid": ["a", "a", "b", "c"],
+            "dest_tpl": "X",
+            "actual_arr": [t0 + pd.Timedelta(minutes=1), t0 + day, t0 + day, pd.NaT],
+        }
+    )
+    got = build.pick_targets(out, targets).set_index("rid")["actual_arr"]
+    assert got["a"] == t0 + pd.Timedelta(minutes=1)  # the day-later duplicate is ignored
+    assert pd.isna(got["b"]) and pd.isna(got["c"])  # only a day-late row, or none: no target
