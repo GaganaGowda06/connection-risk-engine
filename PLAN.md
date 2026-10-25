@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 3 (route-agnostic LightGBM)**; Stages 1 and 2 are met.
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 4 (calibration)**; Stages 1, 2 and 3 are met.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -72,13 +72,16 @@ Open issues carried to 6b: the Mac capture on 2026-10-16 was short in hours 12 t
 
 ### Stage 2: baselines (supports tests 2 to 5) - MET 2026-10-25
 Scope: persistence, historical route-hour baseline, shrunk persistence and gap-bucket baseline on every route or interchange pair, fitted on earlier dates only; split=oot_week and winter_test rows excluded.
-Done means: baseline tables per route and horizon with bootstrap CIs by service date, reproducible from one command, so tests 2 to 5 have a fixed bar. Met: `rail-risk evaluate-baselines` writes reports/baselines/stage2_baselines.{csv,md,json} and stage2_gap_bucket.csv (run 8d3c1769aec3, commit 0e74539).
+Done means: baseline tables per route and horizon with bootstrap CIs by service date, reproducible from one command, so tests 2 to 5 have a fixed bar. Met: `rail-risk evaluate-baselines` writes reports/baselines/stage2_baselines.{csv,md,json} and stage2_gap_bucket.csv (run 8d3c1769aec3, commit 0e74539; restated 2026-10-25 as run 0e3633af27af on commit 664185a after a target fix, see DECISIONS.md).
 Evidence (DECISIONS.md, 2026-10-25): DuckDB chosen over Polars and Spark; split train 2025-12-01 to 2026-09-23, validation 2026-09-25 to 2026-10-08, test 2026-10-10 to 2026-10-16; leakage check 0 mismatches on 894 real snapshots; MCT from RJTTF995.ZIP (BHM 12, MAN 10, BRI 10, no TSI overrides); gap-bucket Brier 0.085 (BHM), 0.096 (MAN), 0.052 (BRI) with the ECE of each recorded; shrunk persistence is the strongest point forecast at 60 minutes.
 Caveats: the NRDP licence text as accepted was not readable (README and DECISIONS say so); the NRDP account needs a download by 2026-11-24 and the portal closes later in 2026; no inbound arrived early enough for the not-yet-arrived subset to differ from all pairs.
 
-### Stage 3: route-agnostic LightGBM (test 2)
+### Stage 3: route-agnostic LightGBM (test 2) - MET 2026-10-25
 Scope: one model, no route_id, leave-route-group-out training; split=oot_week never used.
-Done means: on held-out routes, arrival MAE beats persistence and the historical baseline at 15 and 60 minutes, paired 95% CI below zero, with run ids recorded.
+Done means: on held-out routes, arrival MAE beats persistence and the historical baseline at 15 and 60 minutes, paired 95% CI below zero, with run ids recorded. Met (and also against shrunk persistence, which I added at Stage 3): MLflow run 71d0bc8d7f8e4803963f9af3ecd8d1ed, `rail-risk train-network` then `rail-risk evaluate-network --run-id RUN`, reports/network_model/stage3_report.md. Test block, held-out routes: MAE 2.19 and 3.55 against persistence 2.41 and 3.82, shrunk persistence 2.41 and 3.69, historical 4.04; all six paired CIs below zero.
+Note on PLAN vs Stage 3 scope: PLAN set persistence and historical as the bar; Stage 3 also gates on shrunk persistence (the stricter bar) and asks for coverage, Brier and ECE now. Both are reported.
+Also found: test 3 NOT met by raw ranges (coverage 0.737 at 15 and 0.770 at 60; bhm-liv 0.500 at 15, bri-cdf 0.658 at 60), test 4 met on this block (Brier 0.021 and 0.039 against 0.051, ECE 0.014 and 0.015). Stage 4 carries test 3.
+Caveats: a Stage 2 target defect (day-late duplicate rows) was found and fixed, the Stage 2 bar restated (DECISIONS.md); weather not used (not ingested); what-is-ahead features add only about 2 percent; the worst errors are incidents announced after T; myb-bmo is worse than shrunk persistence at 60 minutes; tuned at the grid edge.
 
 ### Stage 4: calibration (tests 3, 4, plus a separate February stress report)
 Scope: cross-conformal ranges with transferable Mondrian groups, calibrated P(delay at least 15); split=oot_week never used for calibration.

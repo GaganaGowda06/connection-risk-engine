@@ -1,0 +1,71 @@
+{
+ "run_id": "71d0bc8d7f8e4803963f9af3ecd8d1ed",
+ "held_out_validation_rows": 19688,
+ "full_model_mae": {
+  "15": 2.149,
+  "60": 3.237
+ },
+ "shrunk_persistence_mae": {
+  "15": 2.354,
+  "60": 3.45
+ },
+ "without_ahead_features_mae": {
+  "15": 2.183,
+  "60": 3.299
+ },
+ "ahead_features_dropped": [
+  "ahead_n",
+  "ahead_late_mean_min",
+  "ahead_late5_share",
+  "dest_n",
+  "dest_late_mean_min",
+  "dest_late5_share",
+  "dest_cancel_n",
+  "next_n",
+  "next_late_mean_min",
+  "next_late5_share",
+  "next_cancel_n",
+  "net_n",
+  "net_late5_share",
+  "net_late_mean_min",
+  "net_cancel_n"
+ ],
+ "shuffled_labels_max_abs_prediction_change": 0.0,
+ "missing_hour": {
+  "day": "2026-09-28",
+  "window_utc": "10:00-11:00",
+  "held_out_rows_after_gap": 87,
+  "all_predictions_finite": true,
+  "mae_after_gap_normal": 2.446,
+  "mae_after_gap_missing": 3.051,
+  "rows_with_no_actual_normal": 13,
+  "rows_with_no_actual_missing": 19
+ },
+ "no_trains_ahead": {
+  "rows_with_nothing_ahead": 240,
+  "mae_those_rows_model": 1.8,
+  "mae_those_rows_shrunk": 1.768,
+  "all_ahead_features_zeroed_mae": {
+   "15": 2.242,
+   "60": 3.333
+  },
+  "finite": true
+ },
+ "importance_gain_top15": {
+  "fastest_min_remaining": 0.1676,
+  "fc_minus_now_min": 0.0994,
+  "slack_min": 0.0993,
+  "sched_min_remaining": 0.0597,
+  "dest_late_mean_min": 0.0526,
+  "stops_remaining": 0.0478,
+  "n_actuals": 0.0459,
+  "assoc_in_turn_min": 0.0365,
+  "fc_late_min": 0.0349,
+  "late_now_min": 0.033,
+  "late_minus_slack_min": 0.033,
+  "minutes_since_last_actual": 0.0281,
+  "dest_late5_share": 0.0268,
+  "horizon_min": 0.0263,
+  "dest_n": 0.0263
+ }
+}
