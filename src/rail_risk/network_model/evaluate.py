@@ -70,3 +70,31 @@ def paired_table(
                 }
             )
     return pd.DataFrame(rows)
+
+
+def paired_brier(
+    frame: pd.DataFrame,
+    p_model: np.ndarray,
+    p_base: np.ndarray,
+    horizon: int,
+    resamples: int,
+    seed: int,
+    late_min: float = 15.0,
+    confidence: float = 0.95,
+) -> dict[str, float]:
+    """Mean of (model Brier - baseline Brier) for P(delay >= late_min) with a date-bootstrap CI."""
+    m = frame["horizon_min"].to_numpy() == horizon
+    late = (frame["target_min"].to_numpy()[m] >= late_min).astype(float)
+    d = (p_model[m] - late) ** 2 - (p_base[m] - late) ** 2
+    dates, idx = np.unique(frame["ssd"].to_numpy()[m], return_inverse=True)
+    n, s = np.bincount(idx).astype(float), np.bincount(idx, weights=d)
+    counts = np.random.default_rng(seed).multinomial(
+        len(dates), np.full(len(dates), 1 / len(dates)), size=resamples
+    )
+    boot = (counts @ s) / (counts @ n)
+    a = (1 - confidence) / 2
+    return {
+        "diff": float(s.sum() / n.sum()),
+        "lo": float(np.quantile(boot, a)),
+        "hi": float(np.quantile(boot, 1 - a)),
+    }

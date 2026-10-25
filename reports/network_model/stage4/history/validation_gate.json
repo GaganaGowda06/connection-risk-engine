@@ -1,0 +1,129 @@
+{
+ "run_id": "bafb9ef209ea4879a321ab9d9b381229",
+ "git_head": "412ea01",
+ "git_dirty": true,
+ "gate_passed": true,
+ "mode": "history",
+ "tuned": {
+  "median": {
+   "params": {
+    "min_data_in_leaf": 100,
+    "num_leaves": 31
+   },
+   "rounds": 442,
+   "score": 2.711923764699328
+  },
+  "classifier": {
+   "params": {
+    "min_data_in_leaf": 100,
+    "num_leaves": 31
+   },
+   "rounds": 152,
+   "score": 0.032008344396519346
+  }
+ },
+ "tune_days": 41,
+ "folds": [
+  [
+   "ast-bhm",
+   "bhm-wvh",
+   "glc-ayr",
+   "kgx-lds",
+   "mcv-liv"
+  ],
+  [
+   "bhm-bri",
+   "bri-bth",
+   "glc-eus",
+   "man-glc",
+   "pad-bri"
+  ],
+  [
+   "bhm-eus",
+   "eus-man",
+   "glc-pyg",
+   "man-lds"
+  ],
+  [
+   "bhm-man",
+   "eus-wfj",
+   "glq-edb",
+   "man-mia"
+  ]
+ ],
+ "train_rows": 817978,
+ "gate": [
+  {
+   "baseline": "persistence",
+   "horizon_min": 15,
+   "n": 3282,
+   "model_mae": 2.1494,
+   "baseline_mae": 2.3539,
+   "diff": -0.2045,
+   "lo": -0.2678,
+   "hi": -0.1382,
+   "n_dates": 14,
+   "ci_below_zero": true
+  },
+  {
+   "baseline": "persistence",
+   "horizon_min": 60,
+   "n": 3282,
+   "model_mae": 3.2368,
+   "baseline_mae": 3.5736,
+   "diff": -0.3368,
+   "lo": -0.395,
+   "hi": -0.2764,
+   "n_dates": 14,
+   "ci_below_zero": true
+  },
+  {
+   "baseline": "shrunk_persistence",
+   "horizon_min": 15,
+   "n": 3282,
+   "model_mae": 2.1494,
+   "baseline_mae": 2.3539,
+   "diff": -0.2045,
+   "lo": -0.2678,
+   "hi": -0.1382,
+   "n_dates": 14,
+   "ci_below_zero": true
+  },
+  {
+   "baseline": "shrunk_persistence",
+   "horizon_min": 60,
+   "n": 3282,
+   "model_mae": 3.2368,
+   "baseline_mae": 3.4503,
+   "diff": -0.2135,
+   "lo": -0.2873,
+   "hi": -0.1428,
+   "n_dates": 14,
+   "ci_below_zero": true
+  },
+  {
+   "baseline": "historical",
+   "horizon_min": 15,
+   "n": 3282,
+   "model_mae": 2.1494,
+   "baseline_mae": 3.849,
+   "diff": -1.6996,
+   "lo": -2.0127,
+   "hi": -1.4688,
+   "n_dates": 14,
+   "ci_below_zero": true
+  },
+  {
+   "baseline": "historical",
+   "horizon_min": 60,
+   "n": 3282,
+   "model_mae": 3.2368,
+   "baseline_mae": 3.849,
+   "diff": -0.6122,
+   "lo": -0.8739,
+   "hi": -0.4085,
+   "n_dates": 14,
+   "ci_below_zero": true
+  }
+ ]
+}

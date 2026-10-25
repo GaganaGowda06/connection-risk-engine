@@ -1,0 +1,43 @@
+{
+ "method": "cqr",
+ "pool": {
+  "pool_rows": 915498,
+  "fold_rows": 817978,
+  "validation_rows": 97520
+ },
+ "ranges_validation_held_out": {
+  "raw": {
+   "overall": 0.759,
+   "cov15": 0.76,
+   "cov60": 0.767,
+   "worst15": "bhm-liv 0.454",
+   "worst60": "bhm-liv 0.532",
+   "width": 8.79
+  },
+  "calibrated": {
+   "overall": 0.807,
+   "cov15": 0.808,
+   "cov60": 0.804,
+   "worst15": "bhm-liv 0.505",
+   "worst60": "bhm-liv 0.573",
+   "width": 9.79
+  }
+ },
+ "p_late_validation_held_out": {
+  "15": {
+   "ece_before_validation_trainroutes_isotonic": 0.0081,
+   "ece_raw_classifier": 0.0087,
+   "ece_after_out_of_route_isotonic": 0.0067,
+   "brier_before": 0.01631,
+   "brier_after": 0.0162
+  },
+  "60": {
+   "ece_before_validation_trainroutes_isotonic": 0.0061,
+   "ece_raw_classifier": 0.0097,
+   "ece_after_out_of_route_isotonic": 0.0056,
+   "brier_before": 0.03345,
+   "brier_after": 0.03354
+  }
+ },
+ "mlflow_run_id": "87a1165ce4f54a68b2d2a6853928f599"
+}

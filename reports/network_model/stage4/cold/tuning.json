@@ -1,0 +1,453 @@
+{
+ "folds": [
+  [
+   "ast-bhm",
+   "bhm-wvh",
+   "glc-ayr",
+   "kgx-lds",
+   "mcv-liv"
+  ],
+  [
+   "bhm-bri",
+   "bri-bth",
+   "glc-eus",
+   "man-glc",
+   "pad-bri"
+  ],
+  [
+   "bhm-eus",
+   "eus-man",
+   "glc-pyg",
+   "man-lds"
+  ],
+  [
+   "bhm-man",
+   "eus-wfj",
+   "glq-edb",
+   "man-mia"
+  ]
+ ],
+ "tune_days": 41,
+ "grid_results": {
+  "median": [
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 373,
+    "mae": 2.644819488303981
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 221,
+    "mae": 2.641695770404876
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 505,
+    "mae": 2.6494220470517025
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 217,
+    "mae": 2.648210301949867
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 324,
+    "mae": 3.0930331989153697
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 586,
+    "mae": 3.066624337483702
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 384,
+    "mae": 3.090311510729577
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 301,
+    "mae": 3.0918355983299866
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 396,
+    "mae": 2.6406883552694103
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 362,
+    "mae": 2.6492393001721104
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 346,
+    "mae": 2.660237840128111
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 183,
+    "mae": 2.6380440424508595
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 540,
+    "mae": 2.48502790569364
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 363,
+    "mae": 2.484409625858075
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 395,
+    "mae": 2.496875627042909
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 355,
+    "mae": 2.4802454766684083
+   }
+  ],
+  "classifier": [
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 191,
+    "brier": 0.026012660182240053
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 144,
+    "brier": 0.026033759257987836
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 173,
+    "brier": 0.026000714143886876
+   },
+   {
+    "fold": [
+     "ast-bhm",
+     "bhm-wvh",
+     "glc-ayr",
+     "kgx-lds",
+     "mcv-liv"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 138,
+    "brier": 0.026100256793670694
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 235,
+    "brier": 0.04220335210990163
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 115,
+    "brier": 0.0420356612053904
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 145,
+    "brier": 0.04211830393320065
+   },
+   {
+    "fold": [
+     "bhm-bri",
+     "bri-bth",
+     "glc-eus",
+     "man-glc",
+     "pad-bri"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 115,
+    "brier": 0.04211465595297108
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 396,
+    "brier": 0.03551046382535034
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 364,
+    "brier": 0.03542561667801778
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 360,
+    "brier": 0.03566127880577111
+   },
+   {
+    "fold": [
+     "bhm-eus",
+     "eus-man",
+     "glc-pyg",
+     "man-lds"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 240,
+    "brier": 0.03557894039464194
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 15,
+    "rounds": 307,
+    "brier": 0.024281702832575604
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 100,
+    "num_leaves": 31,
+    "rounds": 144,
+    "brier": 0.02431416995188705
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 15,
+    "rounds": 166,
+    "brier": 0.024256987733109584
+   },
+   {
+    "fold": [
+     "bhm-man",
+     "eus-wfj",
+     "glq-edb",
+     "man-mia"
+    ],
+    "min_data_in_leaf": 400,
+    "num_leaves": 31,
+    "rounds": 184,
+    "brier": 0.024472651574632687
+   }
+  ]
+ },
+ "median": {
+  "params": {
+   "min_data_in_leaf": 100,
+   "num_leaves": 31
+  },
+  "rounds": 362,
+  "score": 2.710492258479691
+ },
+ "classifier": {
+  "params": {
+   "min_data_in_leaf": 100,
+   "num_leaves": 31
+  },
+  "rounds": 144,
+  "score": 0.031952301773320764
+ }
+}

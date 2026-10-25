@@ -42,8 +42,10 @@ def load_config(path: Path = CONFIG) -> dict:
     return cfg
 
 
-def feature_names(option: str) -> list[str]:
-    return RECOVERY_FEATURES if option == "recovery" else F.FEATURES
+def feature_names(option: str, drop: list[str] | None = None) -> list[str]:
+    """The model inputs; `drop` removes feature families (cold start drops the slack table)."""
+    base = RECOVERY_FEATURES if option == "recovery" else F.FEATURES
+    return [c for c in base if c not in (drop or [])]
 
 
 def target_for_fit(option: str, df: pd.DataFrame, base: np.ndarray) -> np.ndarray:
@@ -102,7 +104,12 @@ class Booster3:
             b.save_model(str(path / f"q{int(round(alpha * 100)):02d}.txt"))
         self.classifier.save_model(str(path / "classifier.txt"))
         joblib.dump(
-            {"option": self.option, "calibrators": self.calibrators, "features": self.features},
+            {
+                "option": self.option,
+                "calibrators": self.calibrators,
+                "features": self.features,
+                "class_features": self.class_features,
+            },
             path / "meta.joblib",
         )
 
@@ -117,7 +124,7 @@ class Booster3:
         }
         return Booster3(
             meta["option"], q, lgb.Booster(model_file=str(path / "classifier.txt")),
-            meta["calibrators"], meta["features"],
+            meta["calibrators"], meta["features"], meta.get("class_features", list(F.FEATURES)),
         )  # fmt: skip
 
 
@@ -141,7 +148,8 @@ def tune(rows: pd.DataFrame, cfg: dict, option: str) -> dict:
     days = sorted(rows["ssd"].unique())[:: cfg["tune_day_step"]]
     sub = rows[rows["ssd"].isin(set(days))]
     folds = route_folds(sorted(sub["route"].unique()), cfg["folds"])
-    feats = feature_names(option)
+    feats = feature_names(option, cfg.get("drop"))
+    cls_feats = feature_names("residual", cfg.get("drop"))
     keys = sorted(cfg["grid"])
     points = [
         dict(zip(keys, v, strict=True)) for v in itertools.product(*(cfg["grid"][k] for k in keys))
@@ -151,13 +159,13 @@ def tune(rows: pd.DataFrame, cfg: dict, option: str) -> dict:
         va = sub[sub["route"].isin(fold)]
         tr = sub[~sub["route"].isin(fold)]
         fitted = models.fit(tr)  # the base for this fold never saw the fold's routes
-        base_tr = models.predict(fitted, tr)["shrunk_persistence"]["point"].to_numpy()
-        base_va = models.predict(fitted, va)["shrunk_persistence"]["point"].to_numpy()
+        base_tr = D.base_point(fitted, tr, cfg.get("warm_base", False))
+        base_va = D.base_point(fitted, va, cfg.get("warm_base", False))
         xt, xv = D.matrix(tr, feats), D.matrix(va, feats)
         y_tr = target_for_fit(option, tr, base_tr)
         late_tr = (tr["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
         late_va = (va["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
-        cx_t, cx_v = D.matrix(tr), D.matrix(va)
+        cx_t, cx_v = D.matrix(tr, cls_feats), D.matrix(va, cls_feats)
         for gp in points:
             p = _params(cfg, gp, {"objective": "quantile", "alpha": 0.5}, option, feats)
             dv = lgb.Dataset(xv, target_for_fit(option, va, base_va))
@@ -170,7 +178,7 @@ def tune(rows: pd.DataFrame, cfg: dict, option: str) -> dict:
             results["median"].append(
                 {"fold": sorted(fold), **gp, "rounds": m.best_iteration, "mae": mae}
             )
-            pc = _params(cfg, gp, {"objective": "binary"}, option, F.FEATURES)
+            pc = _params(cfg, gp, {"objective": "binary"}, option, cls_feats)
             mc = lgb.train(
                 pc, lgb.Dataset(cx_t, late_tr), cfg["max_rounds"],
                 valid_sets=[lgb.Dataset(cx_v, late_va)],
@@ -196,6 +204,40 @@ def tune(rows: pd.DataFrame, cfg: dict, option: str) -> dict:
     return out
 
 
+def fit_boosters(train: pd.DataFrame, cfg: dict, tuned: dict, base_tr: np.ndarray) -> Booster3:
+    """The quantile models and the late classifier, without calibrators."""
+    option = cfg["option"]
+    feats = feature_names(option, cfg.get("drop"))
+    cls_feats = feature_names("residual", cfg.get("drop"))
+    x = D.matrix(train, feats)
+    y = target_for_fit(option, train, base_tr)
+    qs = {}
+    for alpha in cfg["quantiles"]:
+        a = (1 - alpha) if option == "recovery" else alpha
+        obj = {"objective": "quantile", "alpha": a}
+        p = _params(cfg, tuned["median"]["params"], obj, option, feats)
+        qs[a] = lgb.train(p, lgb.Dataset(x, y), tuned["median"]["rounds"])
+    late = (train["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
+    pc = _params(cfg, tuned["classifier"]["params"], {"objective": "binary"}, option, cls_feats)
+    clf = lgb.train(
+        pc, lgb.Dataset(D.matrix(train, cls_feats), late), tuned["classifier"]["rounds"]
+    )
+    return Booster3(option, qs, clf, {}, feats, cls_feats)
+
+
+def fit_calibrators(model: Booster3, scored: pd.DataFrame, raw: np.ndarray) -> dict:
+    """Isotonic P(delay >= 15) per horizon from raw classifier scores on rows the fit never saw."""
+    yv = (scored["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
+    h = scored["horizon_min"].to_numpy()
+    cals = {}
+    for k in np.unique(h):
+        m = h == k
+        cals[int(k)] = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(
+            raw[m], yv[m]
+        )
+    return cals
+
+
 def fit_final(
     train: pd.DataFrame,
     validation_train_routes: pd.DataFrame,
@@ -203,30 +245,10 @@ def fit_final(
     tuned: dict,
     base_tr: np.ndarray,
 ) -> Booster3:
-    option = cfg["option"]
-    feats = feature_names(option)
-    x = D.matrix(train, feats)
-    y = target_for_fit(option, train, base_tr)
-    qs = {}
-    for alpha in cfg["quantiles"]:
-        a = (1 - alpha) if option == "recovery" else alpha
-        p = _params(
-            cfg, tuned["median"]["params"], {"objective": "quantile", "alpha": a}, option, feats
-        )
-        qs[a] = lgb.train(p, lgb.Dataset(x, y), tuned["median"]["rounds"])
-    late = (train["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
-    pc = _params(cfg, tuned["classifier"]["params"], {"objective": "binary"}, option, F.FEATURES)
-    clf = lgb.train(pc, lgb.Dataset(D.matrix(train), late), tuned["classifier"]["rounds"])
-    raw = clf.predict(D.matrix(validation_train_routes))
-    yv = (validation_train_routes["target_min"] >= models.LATE_MIN).astype(float).to_numpy()
-    h = validation_train_routes["horizon_min"].to_numpy()
-    cals = {}
-    for k in np.unique(h):
-        m = h == k
-        cals[int(k)] = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(
-            raw[m], yv[m]
-        )
-    return Booster3(option, qs, clf, cals, feats)
+    model = fit_boosters(train, cfg, tuned, base_tr)
+    raw = model.classifier.predict(D.matrix(validation_train_routes, model.class_features))
+    model.calibrators = fit_calibrators(model, validation_train_routes, raw)
+    return model
 
 
 def gate(
@@ -234,9 +256,12 @@ def gate(
 ) -> pd.DataFrame:
     """Paired date-bootstrap on validation, held-out routes, 15 and 60 minutes."""
     hv = val[val["route"].isin(held)]
-    preds = models.predict(models.fit(fit_rows), hv)
+    fitted = models.fit(fit_rows)
+    preds = models.predict(fitted, hv)
     base = preds["shrunk_persistence"]["point"].to_numpy()
-    mp = model.predict(hv, base)["point"].to_numpy()
+    mp = model.predict(hv, D.base_point(fitted, hv, cfg.get("warm_base", False)))[
+        "point"
+    ].to_numpy()
     return paired_table(
         hv, mp,
         {

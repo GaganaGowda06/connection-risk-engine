@@ -42,7 +42,19 @@ ASSOC = [
     "assoc_out_n", "assoc_join_n", "assoc_divide_n", "assoc_next_n",
 ]  # fmt: skip
 CALENDAR = ["arr_hour_local", "weekday", "is_bank_holiday"]
-FEATURES = [*STATE, *REMAINING, *SLACK, *AHEAD, *ASSOC, *CALENDAR]
+# lateness of the same route at the same arrival hour over the previous SLOT_DAYS days (strictly
+# earlier service dates): a route's own recent history, so unavailable on a route's first days
+HISTORY = [
+    "slot_median_min", "slot_p90_min", "slot_late15_share", "slot_n",
+    "recent_recovery_min", "recent_final_min", "recent_n",
+]  # fmt: skip
+SLOT_DAYS = 28
+SLOT_MIN_N = 5
+# a route's running drifts over weeks (bhm-liv gained about three minutes between January and
+# October), so a short window of the route's own recent recovery is also given to the model
+RECENT_DAYS = 7
+RECENT_MIN_N = 20
+FEATURES = [*STATE, *REMAINING, *SLACK, *AHEAD, *ASSOC, *CALENDAR, *HISTORY]
 # column names the model must never see, whatever their form (tests/test_network_model.py)
 BANNED_SUBSTRINGS = ("route", "rid", "tpl", "tiploc", "crs", "toc", "operator", "hub")
 KEY = ["rid", "route", "horizon_min"]
@@ -385,14 +397,20 @@ def _ahead(con, snaps: pd.DataFrame) -> pd.DataFrame:
 
 
 def fastest_table(
-    root: Path, days: list[date], pairs: pd.DataFrame, min_obs: int = MIN_PAIR_OBS
+    root: Path,
+    days: list[date],
+    pairs: pd.DataFrame,
+    min_obs: int = MIN_PAIR_OBS,
+    exclude_rids: set[str] | None = None,
 ) -> pd.DataFrame:
     """5th percentile of the observed run time from an event at a stop to the arrival at the
-    destination, over the given (train) days, for the (from_tpl, from_event, dest_tpl) pairs."""
+    destination, over the given (train) days, for the (from_tpl, from_event, dest_tpl) pairs.
+    `exclude_rids` drops those services (cold start: the held-out routes' own services)."""
     import duckdb
 
     con = duckdb.connect()
     con.register("p", pairs[["from_tpl", "from_event", "dest_tpl"]].drop_duplicates())
+    con.register("x", pd.DataFrame({"rid": sorted(exclude_rids or set())}, dtype="string"))
     parts = []
     for d in days:
         a = train_pool_table(root, "stop_actuals", ["rid", "tpl", "event", "actual"], [d])
@@ -406,6 +424,7 @@ def fastest_table(
                 FROM p JOIN a f ON f.tpl = p.from_tpl AND f.event = p.from_event
                 JOIN a t ON t.rid = f.rid AND t.tpl = p.dest_tpl AND t.event = 'arr'
                 WHERE f.actual IS NOT NULL AND t.actual IS NOT NULL AND t.actual > f.actual
+                  AND f.rid NOT IN (SELECT rid FROM x)
             """).df()
         )
         con.unregister("a")

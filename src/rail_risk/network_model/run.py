@@ -13,6 +13,7 @@ import pandas as pd
 
 from rail_risk.baselines import models, scoring
 from rail_risk.baselines.run import assert_train_pool_only
+from rail_risk.baselines.target_check import assert_targets_ok
 from rail_risk.ingest.darwin_pport import load_stage1_config, split_for
 from rail_risk.logging import get_logger
 from rail_risk.network_model import dataset as D
@@ -42,13 +43,16 @@ def _tracking() -> None:
     mlflow.set_experiment(name)
 
 
-def prepare_frames(include_test: bool) -> tuple[dict, set[str], object, dict]:
+def prepare_frames(include_test: bool, cold: bool = False) -> tuple[dict, set[str], object, dict]:
     split, held = D.load_split()
     days = [*split.train, *split.validation, *(split.test if include_test else [])]
     assert_train_pool_only(days)
-    fastest = D.ensure_fastest([*split.train, *split.validation, *split.test], list(split.train))
+    fastest = D.ensure_fastest(
+        [*split.train, *split.validation, *split.test], list(split.train), cold=cold
+    )
     df = D.prepare(D.load(days), fastest)
     rows = D.split_rows(df, split, held)
+    assert_targets_ok(None, {k: v for k, v in rows.items() if k != "train_all_routes"})
     assert not rows["train"]["route"].isin(held).any(), "a held-out route reached the fit"
     cfg = load_stage1_config()
     for name in ("train", "validation") + (("test",) if include_test else ()):
@@ -57,26 +61,44 @@ def prepare_frames(include_test: bool) -> tuple[dict, set[str], object, dict]:
     return rows, held, split, {"fastest_pairs": len(fastest)}
 
 
-def train_command(config: Path = T.CONFIG) -> dict:
+def train_command(
+    config: Path = T.CONFIG,
+    mode: str = "history",
+    out_dir: Path = T.REPORT_DIR,
+    grid: dict | None = None,
+    drop: list[str] | None = None,
+    warm_base: bool = False,
+) -> dict:
+    """mode 'history': the Stage 2 base and slack table use every route's own train-date history
+    (held-out routes included). mode 'cold': held-out routes get no route-specific history, the
+    base is fitted on the training routes only and the slack table leaves the held-out services
+    out. `grid` overrides the tuning grid (the widened-grid check)."""
     log = get_logger("network_train")
+    if mode not in ("history", "cold"):
+        raise ValueError(f"unknown mode {mode!r}")
     cfg = T.load_config(config)
-    rows, held, split, extra = prepare_frames(include_test=False)
+    if grid is not None:
+        cfg = {**cfg, "grid": grid}
+    if drop:
+        cfg = {**cfg, "drop": list(drop)}
+    cfg = {**cfg, "warm_base": warm_base}
+    cold = mode == "cold"
+    rows, held, split, extra = prepare_frames(include_test=False, cold=cold)
     train, val = rows["train"], rows["validation"]
+    base_rows = train if cold else rows["train_all_routes"]
     head, dirty = git_state()
     log.info("tuning", train_rows=len(train), folds=cfg["folds"])
     tuned = T.tune(train, cfg, cfg["option"])
-    base_fit = models.fit(
-        rows["train_all_routes"]
-    )  # the Stage 2 bar's fit, as in evaluate-baselines
-    base_tr = models.predict(base_fit, train)["shrunk_persistence"]["point"].to_numpy()
+    base_fit = models.fit(base_rows)  # history mode: the Stage 2 bar's fit
+    base_tr = D.base_point(base_fit, train, cfg.get("warm_base", False))
     val_train_routes = val[~val["route"].isin(held)]
     model = T.fit_final(train, val_train_routes, cfg, tuned, base_tr)
-    table = T.gate(model, val, held, rows["train_all_routes"], cfg)
+    table = T.gate(model, val, held, base_rows, cfg)
     passed = bool(
         table[table["baseline"].isin(["persistence", "shrunk_persistence"])]["ci_below_zero"].all()
     )
     _tracking()
-    with mlflow.start_run(run_name=f"network-{cfg['option']}-{head}") as run:
+    with mlflow.start_run(run_name=f"network-{cfg['option']}-{mode}-{head}") as run:
         mlflow.log_params(
             {
                 "option": cfg["option"], "seed": cfg["seed"], "n_features": len(model.features),
@@ -92,6 +114,7 @@ def train_command(config: Path = T.CONFIG) -> dict:
         mlflow.set_tags(
             {
                 "git_head": head, "git_dirty": str(dirty), "gate_passed": str(passed),
+                "mode": mode, "dropped": ",".join(drop or []), "warm_base": str(warm_base),
                 "features": ",".join(model.features),
                 "train_hash": D.data_hash(train, ["rid", "horizon_min", "target_min"]),
                 "validation_hash": D.data_hash(val, ["rid", "horizon_min", "target_min"]),
@@ -107,12 +130,12 @@ def train_command(config: Path = T.CONFIG) -> dict:
         mlflow.log_artifacts(str(path), artifact_path="model")
     out = {
         "run_id": run_id, "git_head": head, "git_dirty": dirty, "gate_passed": passed,
-        "tuned": {k: tuned[k] for k in ("median", "classifier")},
+        "mode": mode, "tuned": {k: tuned[k] for k in ("median", "classifier")},
         "tune_days": tuned["tune_days"], "folds": tuned["folds"], "train_rows": len(train),
         "gate": table.round(4).to_dict("records"),
     }  # fmt: skip
-    T.write_json(T.REPORT_DIR / "validation_gate.json", out)
-    T.write_json(T.REPORT_DIR / "tuning.json", tuned)
+    T.write_json(out_dir / "validation_gate.json", out)
+    T.write_json(out_dir / "tuning.json", tuned)
     log.info("trained", run_id=run_id, gate_passed=passed)
     return out
 

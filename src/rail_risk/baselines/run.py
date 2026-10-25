@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rail_risk.baselines import build, gap_bucket, models, pairs, scoring
+from rail_risk.baselines import build, gap_bucket, models, pairs, scoring, target_check
 from rail_risk.baselines.split import network_split
 from rail_risk.clean.run import route_specs
 from rail_risk.config import load_routes
@@ -65,6 +65,10 @@ def run(
     test = build.load_snapshots(snap_dir, list(split.test))
     if train.empty or test.empty:
         raise RuntimeError("no snapshots for the train or test block; check the extract")
+    valid = build.load_snapshots(snap_dir, list(split.validation))
+    target_report = target_check.assert_targets_ok(
+        None, {"train": train, "validation": valid, "test": test}
+    )
     fitted = models.fit(train)
     preds = models.predict(fitted, test)
     held = {r.id for r in table if r.held_out}
@@ -92,6 +96,7 @@ def run(
         "test_rows": int(len(test)),
         "build": {k: (v if not isinstance(v, list) else len(v)) for k, v in built.items()},
         "missing_days": built["missing_days"],
+        "target_check_warnings": target_report["warnings"],
         "gap_bucket": gap_meta,
         "routes_without_test_rows": sorted(
             set(r.id for r in table) - set(test.loc[test["has_target"], "route"])

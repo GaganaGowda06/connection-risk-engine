@@ -1,0 +1,13 @@
+{
+ "failures": [],
+ "warnings": [
+  "train/glc-eus: 2.9% of rows under -30 minutes",
+  "validation/glc-eus: 2.5% of rows under -30 minutes",
+  "test/glc-eus: 3.1% of rows under -30 minutes"
+ ],
+ "rows": {
+  "train": 980224,
+  "validation": 117208,
+  "test": 57481
+ }
+}
