@@ -1,0 +1,17 @@
+{
+ "days": [
+  "2026-10-12",
+  "2026-10-14",
+  "2026-01-15"
+ ],
+ "snapshots_checked": 894,
+ "snapshots_with_an_actual_by_T": 713,
+ "mismatches": 0,
+ "mismatches_by_column": {
+  "last_actual_tpl": 0,
+  "last_actual_s": 0,
+  "last_actual_late_s": 0,
+  "fc_late_s": 0
+ },
+ "examples": []
+}

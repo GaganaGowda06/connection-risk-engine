@@ -678,7 +678,29 @@ def _promote(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evaluate_network_baselines(args: argparse.Namespace) -> int:
+    """Stage 2: snapshots, fit on the train block, score the test block, write the tables."""
+    from rail_risk.baselines import run as baseline_run
+
+    try:
+        settings = Settings()
+        configure_logging(settings.log_level, settings.log_json)
+        meta = baseline_run.run(
+            split_file=args.split_file,
+            out_dir=args.out,
+            engine=args.engine,
+            rebuild=args.rebuild,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        get_logger().error("evaluate_baselines_failed", error=str(exc))
+        return 1
+    print(f"run {meta['run_id']}: wrote {args.out}/stage2_baselines.csv and .md")
+    return 0
+
+
 def _evaluate_baselines(args: argparse.Namespace) -> int:
+    if not args.legacy:
+        return _evaluate_network_baselines(args)
     from rail_risk.evaluation import (
         complete_days,
         evaluate,
@@ -814,7 +836,14 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     tr.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     tr.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
-    ev = sub.add_parser("evaluate-baselines", help="score the baselines on validation and test")
+    ev = sub.add_parser(
+        "evaluate-baselines",
+        help="Stage 2: network snapshots and baselines scored on the test block "
+        "(--legacy runs the older two-route evaluation)",
+    )
+    ev.add_argument("--legacy", action="store_true", help="the older two-route evaluation")
+    ev.add_argument("--engine", choices=["duckdb", "polars", "spark"], default="duckdb")
+    ev.add_argument("--rebuild", action="store_true", help="rebuild day snapshots already on disk")
     ev.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     ev.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     ev.add_argument("--out", type=Path, default=Path("reports/baselines"))

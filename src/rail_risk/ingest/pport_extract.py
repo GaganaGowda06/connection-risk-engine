@@ -185,8 +185,22 @@ def partial_days(stats_dir: Path) -> list[str]:
     return out
 
 
-def train_pool_table(out: Path, table: str, columns: list[str] | None = None) -> pa.Table:
-    """The only way a model stage reads a table: train_pool rows, never oot_week or winter_test."""
-    parts = sorted((out / table).glob("service_date=*/*.parquet"))
+def train_pool_table(
+    out: Path,
+    table: str,
+    columns: list[str] | None = None,
+    service_dates: list[date] | None = None,
+) -> pa.Table:
+    """The only way a model stage reads a table: train_pool rows, never oot_week or winter_test.
+
+    `service_dates` limits the read to those partitions (a day at a time keeps memory small)."""
+    if service_dates is None:
+        parts = sorted((out / table).glob("service_date=*/*.parquet"))
+    else:
+        parts = sorted(
+            p for d in service_dates for p in (out / table / f"service_date={d}").glob("*.parquet")
+        )
+    if not parts:
+        return pa.table({})
     dataset = ds.dataset([str(p) for p in parts], format="parquet")
     return dataset.to_table(columns=columns, filter=ds.field("split") == "train_pool")

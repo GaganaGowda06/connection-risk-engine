@@ -13,3 +13,13 @@ bootstrap:
   resamples: 1000
   seed: 20261015
   confidence: 0.95
+
+# Stage 2 network split (rail_risk.baselines.split). The same sizes as above, applied to the
+# complete service dates of train_pool only (oot_week and winter_test never appear). The dates
+# below are what the rule gives from data/manifests/darwin_archive.csv; a test keeps them equal.
+# train holds Dec 2025, Jan 2026 and 2026-07-25 to 2026-09-23 (complete days only, so there are
+# no autumn days in train: the validation and test blocks are the first autumn the baselines see).
+network:
+  train: {first: 2025-12-01, last: 2026-09-23, days: 123}
+  validation: {first: 2026-09-25, last: 2026-10-08, days: 14}
+  test: {first: 2026-10-10, last: 2026-10-16, days: 7}

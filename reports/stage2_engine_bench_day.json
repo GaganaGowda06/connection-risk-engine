@@ -1,0 +1,29 @@
+[
+ {
+  "engine": "duckdb",
+  "seconds": 1.3,
+  "peak_gb": 2.19,
+  "returncode": 0,
+  "rows_in": 11114013,
+  "snapshots": 9566,
+  "identical_to_first": true
+ },
+ {
+  "engine": "polars",
+  "seconds": 1.3,
+  "peak_gb": 3.95,
+  "returncode": 0,
+  "rows_in": 11114013,
+  "snapshots": 9566,
+  "identical_to_first": true
+ },
+ {
+  "engine": "spark",
+  "seconds": 301.9,
+  "peak_gb": 14.46,
+  "returncode": 0,
+  "rows_in": 11114013,
+  "snapshots": 9566,
+  "identical_to_first": true
+ }
+]

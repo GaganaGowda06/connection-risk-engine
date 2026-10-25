@@ -165,6 +165,7 @@ The Terraform in `infra/` is plan-only. The commands are in `infra/README.md`.
 ## Data licences and sources
 
 - Darwin Real Time Train Information and the Historical Service Performance (HSP) service metrics and details API, both obtained through the Rail Data Marketplace (RDM). Their licence terms are below.
+- Archive history: the community Darwin Push Port archive at https://ilovetrains.co.uk/darwin-push-port, which says it collects the RDM Push Port product. The archive states no terms of its own, so the data is used under the RDM Open licence below, and the archive is credited here. Station codes: NaPTAN (DfT, Open Government Licence) joined to davwheat/uk-railway-stations (ODbL 1.0).
 - Avanti West Coast Delay Repay page, https://www.avantiwestcoast.co.uk/help-and-support/delay-repay, last updated 2026-07-21 and checked 2026-10-15.
 - West Midlands Railway Delay Repay page, https://www.westmidlandsrailway.co.uk/delay-repay, checked 2026-10-15 (manual reading, see above).
 - England and Wales bank holidays from gov.uk (`config/bank_holidays.json`).

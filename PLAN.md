@@ -1,6 +1,6 @@
 # PLAN
 
-Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 1 (data foundation)**, sub-steps 1.1 and 1.2 done, 1.3 open.
+Network-wide rebuild of the Connection Risk Engine. GOAL.md holds the nine pass/fail tests; every stage below says which it must pass. Current stage: **Stage 2 (baselines)**; Stage 1 (data foundation) is met, sub-steps 1.1 and 1.2 done, 1.3 open.
 
 ## Approach (from Stage 0 research, decisions and evidence in DECISIONS.md)
 - History: the community Darwin Push Port archive (ilovetrains.co.uk), mirrored to disk. It is unverified for licence and has no SLA, so everything needed is mirrored.
@@ -48,7 +48,7 @@ Held-out routes never enter training, tuning or calibration folds, and no featur
 
 ## Stages
 
-### Stage 1: data foundation (GOAL tests 1, 7, 8) - CURRENT
+### Stage 1: data foundation (GOAL tests 1, 7, 8) - MET 2026-10-25
 Scope: mirror the archive (1.1, in progress), parse Darwin XML v18 into per-stop tables with one set of cleaning checks and no route-specific code, parse MSN and TSI for minimum connection times, pick the 25 routes, load timetable and planned-closure information.
 Split: all dates from 2026-10-17 to 2026-10-23 are marked split=oot_week in the clean tables and excluded from every fit; February 2026 is the winter hold-out.
 Done means: at least 20 routes, 5 operators, short, medium and long journeys and a major hub in the clean tables (test 1); every route passes the same checks for types, timezones, station matching, and planned closure versus missing data (test 7); every source and licence is recorded and no number is unsourced (test 8).
@@ -59,8 +59,8 @@ Progress (details and evidence in DECISIONS.md, 2026-10-24):
 - Stage 1 done-means, checked 2026-10-25:
   - Test 1 (breadth): MET. 25 routes, 11 operators (10 TOC codes), 5 hubs, short, medium and long, four interchange pairs; every route has trains in all 7 window months (reports/stage1_coverage.csv). Thin: mcv-liv (21 trains in its quietest month), man-glc (54).
   - Test 7 (data quality): MET with a caveat. The same pandera checks run on every route and the network (reports/stage1_cleaning.csv), a test fails on any CRS or route literal in the clean code. PLAN set no numeric pass threshold, so "passes" means checked and published; residual flags: duplicates 19,608 of 1.78 billion updates, station matching 100% on route services, impossible negative dwell 31,443 of 4.76 million stops network-wide (bri-wsm 175 of 7,864 is the highest route), 2.4% of passenger schedules are missing data.
-  - Test 8 (trust): NOT MET. Open: the community archive states no licence or terms (only that it collects the RDM Push Port product); MIDAS and Meteostat terms and coverage unverified; weather licence for the chosen source not yet accepted. Verified: station list ODbL 1.0, NaPTAN OGL, Open-Meteo CC-BY 4.0 non-commercial for development. Closing needs my call on the archive terms (accept, or ask the archive owner).
-  - So Stage 1 is not closed and GOAL.md's last line stays at Stage 1.
+  - Test 8 (trust): MET by my decision of 2026-10-25. The archive's own terms are unstated; the data is the RDM Darwin Push Port product under the RDM Open licence (already recorded), and the archive (ilovetrains.co.uk) is credited in the README and DECISIONS.md. An email to its owner is optional. Verified: station list ODbL 1.0, NaPTAN OGL, Open-Meteo CC-BY 4.0 non-commercial for development. MIDAS and Meteostat stay unverified and unused.
+  - Stage 1 is met; GOAL.md's last line is Stage 2. The three legacy routes stay as they are.
 Weather: Open-Meteo (ERA5) is the recommended history source (free for development, paid key before commercial use, newest 5 days null, modelled not observed); not ingested until Stage 3 needs it.
 Extract layout: data/interim/pport/<table>/service_date=D/<hour file>.parquet, read model data only through rail_risk.ingest.pport_extract.train_pool_table (train_pool rows only).
 
@@ -70,9 +70,11 @@ Scope: provision Oracle Cloud Always Free (2 OCPU, 12 GB, resident memory above 
 Done means: capture running on Oracle; the Mac capture stopped only after an overlap check shows no hole at the switch; capture loss measured against the archive for the same hours and stated with the days observed (target 7 days, under 1% loss).
 Open issues carried to 6b: the Mac capture on 2026-10-16 was short in hours 12 to 16 (message ratios 0.89, 0.32, 0.57, 0.74, 0.75 against the archive) and had 2.4 to 2.5 times the archive's messages in hours 17 and 18 (duplicates or redelivery, cause not checked). Both must be understood before the loss figure is trusted.
 
-### Stage 2: baselines (supports tests 2 to 5)
+### Stage 2: baselines (supports tests 2 to 5) - CURRENT, mostly done
 Scope: persistence, historical route-hour baseline and gap-bucket baseline on every route, fitted on earlier dates only; split=oot_week rows excluded.
 Done means: baseline tables per route and horizon with bootstrap CIs by service date, reproducible from one command, so tests 2 to 5 have a fixed bar.
+Status 2026-10-25 (evidence in DECISIONS.md): snapshots, split, leakage check (0 mismatches on 894 real rows), persistence, historical and a Darwin-forecast reference, scored on the test block with bootstrap CIs, all from `rail-risk evaluate-baselines` (run 6f2d72896a68 at the time of writing, reports/baselines/stage2_baselines.md). NOT done: the gap-bucket P(miss) baseline, because the MSN and TSI files need a National Rail Data Portal account and no MCT value may be assumed; test 5 has no bar until that source is provided. Stage 2 is therefore not closed.
+Open to close it: I provide the timetable feed (or another licensed MCT source); parse MSN and TSI for BHM, MAN and BRI into data/ref/mct.csv; score the gap-bucket baseline on the four interchange pairs.
 
 ### Stage 3: route-agnostic LightGBM (test 2)
 Scope: one model, no route_id, leave-route-group-out training; split=oot_week never used.

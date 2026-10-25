@@ -1,0 +1,41 @@
+{
+ "baseline_held_out_persistence_15": {
+  "n": 1619,
+  "n_dates": 7,
+  "mae": 2.405
+ },
+ "missing_day_build": {
+  "days": [
+   "2026-10-17",
+   "2025-12-25",
+   "2026-10-14"
+  ],
+  "split_of_each": [
+   "oot_week",
+   "train_pool",
+   "train_pool"
+  ],
+  "built": [
+   "2026-10-14"
+  ],
+  "missing_days": [
+   "2026-10-17",
+   "2025-12-25"
+  ]
+ },
+ "test_block_missing_2026-10-13": {
+  "n_dates": 6,
+  "n": 1372,
+  "mae": 2.484
+ },
+ "empty_route_mcv-liv": {
+  "n": 0,
+  "metrics_reported": false,
+  "other_routes_still_scored": 24
+ },
+ "snapshot_dates_by_split": {
+  "train_pool": 143
+ },
+ "oot_week_or_winter_test_dates_in_snapshots": 0,
+ "fit_dates_outside_train_pool": 0
+}
