@@ -1,0 +1,19 @@
+{
+ "run_id": "1e197857e96a41e8ad5d350d204307ed",
+ "choice": {
+  "method": "aci_route",
+  "gamma": 0.05,
+  "overall": 0.8012494920763917,
+  "mean_width": 9.968600375667073,
+  "cov15": 0.8016453382084096,
+  "worst15": "bhm-liv 0.782",
+  "worst15_value": 0.782258064516129,
+  "cov60": 0.8007312614259597,
+  "worst60": "bhm-liv 0.790",
+  "worst60_value": 0.7903225806451613,
+  "first7_overall": 0.8014032946918853,
+  "first7_worst": "bhm-liv 0.781",
+  "last7_overall": 0.8010960016237061
+ },
+ "rule": "Rule: overall coverage at least 0.01 inside the 0.78 to 0.82 band at 15 and 60 (a margin so\n    a fresh block does not fall out of it), then the best worst-route coverage, then the narrower\n    mean width. The first version of the rule had no margin; the margin was added after seeing\n    validation (on validation only) because the best worst-route setting sat on the band edge."
+}
