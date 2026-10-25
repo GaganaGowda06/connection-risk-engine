@@ -1,6 +1,6 @@
 {
- "run_id": "6f2d72896a68",
- "git_head": "3f6f209",
+ "run_id": "0e6ba55ed863",
+ "git_head": "4dece71",
  "engine": "duckdb",
  "split": {
   "train": [
@@ -23,10 +23,10 @@
  "fit_services": 147652,
  "test_rows": 59676,
  "build": {
-  "built": 143,
-  "skipped_existing": 0,
+  "built": 0,
+  "skipped_existing": 143,
   "missing_days": 1,
-  "rows": 1208652
+  "rows": 0
  },
  "missing_days": [
   "2025-12-25"

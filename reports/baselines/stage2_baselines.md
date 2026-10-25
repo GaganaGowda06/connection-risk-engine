@@ -1,6 +1,6 @@
 # Stage 2 baselines
 
-Run 6f2d72896a68 at commit 3f6f209. Fitted on the train block (2025-12-01 to 2026-09-23, 123 days), scored on the test block (2026-10-10 to 2026-10-16). Intervals are 95% bootstrap CIs over service dates.
+Run 0e6ba55ed863 at commit 4dece71. Fitted on the train block (2025-12-01 to 2026-09-23, 123 days), scored on the test block (2026-10-10 to 2026-10-16). Intervals are 95% bootstrap CIs over service dates.
 The historical baseline uses each held-out route's own earlier dates, which makes the bar harder than a route it has never seen. darwin_forecast is a reference, not a GOAL baseline. Lateness is in minutes. Coverage is of the 10 to 90 percent range.
 Gap-bucket P(miss): blocked: data/ref/mct.csv not found: parse the RDG MSN and TSI files first (no MCT value is assumed).
 
