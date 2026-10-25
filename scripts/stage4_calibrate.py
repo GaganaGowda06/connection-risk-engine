@@ -102,7 +102,8 @@ def main() -> None:
     with mlflow.start_run(run_name=f"stage4-calibration-{args.method}") as run:
         mlflow.log_params({"method": args.method, "model_run_id": args.run_id, "mode": NAME,
                            "pool_rows": len(pool), "min_cell": C.MIN_CELL})  # fmt: skip
-        mlflow.set_tags({"git_head": R.git_state()[0], "dropped": ",".join(DROP),
+        head, dirty = R.git_state()
+        mlflow.set_tags({"git_head": head, "git_dirty": str(dirty), "dropped": ",".join(DROP),
                          "held_out_in_pool": "0"})  # fmt: skip
         for k, v in res["ranges_validation_held_out"]["calibrated"].items():
             if isinstance(v, float):
