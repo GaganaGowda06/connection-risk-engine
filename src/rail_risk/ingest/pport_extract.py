@@ -191,6 +191,7 @@ GATE_THRESHOLD = Path("reports/serving/guard_threshold.json")
 GATE_DONE = Path("reports/serving/oot_replay_scored.json")
 GATE_GUARD_V2 = Path("reports/serving/guard_v2.json")
 GATE_SECOND = Path("reports/serving/oot_gap_second_look.json")
+GATE_AUDIT = Path("reports/connections/stage5/label_audit.json")
 
 
 def oot_already_scored() -> bool:
@@ -233,6 +234,9 @@ def reading_split(split: str, purpose: str):
         replay_gate()
     elif (split, purpose) == ("oot_week", "oot_gap_second_look"):
         second_look_gate()
+    elif purpose == "pair_label_audit" and split in ("oot_week", "winter_test"):
+        if GATE_AUDIT.exists():  # counting only, once: the audit writes this file when done
+            raise PermissionError(f"the pair label audit was already done: {GATE_AUDIT}")
     elif split != "winter_test" or purpose != "february_stress":
         raise ValueError(f"reading split {split!r} for {purpose!r} is not allowed")
     previous, _ACTIVE_SPLIT = _ACTIVE_SPLIT, split
