@@ -189,6 +189,8 @@ def partial_days(stats_dir: Path) -> list[str]:
 _ACTIVE_SPLIT = "train_pool"
 GATE_THRESHOLD = Path("reports/serving/guard_threshold.json")
 GATE_DONE = Path("reports/serving/oot_replay_scored.json")
+GATE_GUARD_V2 = Path("reports/serving/guard_v2.json")
+GATE_SECOND = Path("reports/serving/oot_gap_second_look.json")
 
 
 def oot_already_scored() -> bool:
@@ -210,13 +212,27 @@ def replay_gate() -> None:
         raise PermissionError(f"oot_week was already replayed and scored: {GATE_DONE}")
 
 
+def second_look_gate() -> None:
+    """The one labelled second look at the 2026-10-20 gap: only after the replay was scored once,
+    after the redesigned guard was frozen on simulated gaps (its file exists), and only once."""
+    if not oot_already_scored():
+        raise PermissionError("the second look comes after the oot_week replay was scored")
+    if not GATE_GUARD_V2.exists():
+        raise PermissionError(f"the second look needs the frozen guard {GATE_GUARD_V2}")
+    if GATE_SECOND.exists():
+        raise PermissionError(f"the second look was already done: {GATE_SECOND}")
+
+
 @contextmanager
 def reading_split(split: str, purpose: str):
     """Let train_pool_table read one other split inside the block. Only the February stress report
-    may read winter_test, once; oot_week can never be read through this function."""
+    may read winter_test, once; oot_week opens only for the Stage 6 replay (once) and the one
+    labelled second look at the 2026-10-20 gap (once)."""
     global _ACTIVE_SPLIT
     if (split, purpose) == ("oot_week", "oot_replay"):
         replay_gate()
+    elif (split, purpose) == ("oot_week", "oot_gap_second_look"):
+        second_look_gate()
     elif split != "winter_test" or purpose != "february_stress":
         raise ValueError(f"reading split {split!r} for {purpose!r} is not allowed")
     previous, _ACTIVE_SPLIT = _ACTIVE_SPLIT, split

@@ -42,6 +42,7 @@ from rail_risk.network_model import dataset as D
 from rail_risk.network_model import features as F
 from rail_risk.serving import artifacts as AR
 from rail_risk.serving.arrival import due_arrival
+from rail_risk.serving.guard import Guard
 from rail_risk.serving.state import StateStore
 
 TABLES = ("schedules", "schedule_points", "stop_updates", "associations", "deactivations")
@@ -99,9 +100,12 @@ class Engine:
         memory_limit_gb: float = 4.0,
         ssds: list[date] | None = None,
         skip: list[pd.Timestamp] | None = None,
+        gaps: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None,
+        guard: Guard | None = None,
     ):
         self.store, self.src, self.root = store, source_root, store_root
         self.th = thresholds or Thresholds()
+        self.guard = guard or Guard()
         self.ssds = {f"service_date={d}" for d in ssds} if ssds else None
         self.source_split = source_split
         if source_split == "oot_week":
@@ -128,6 +132,9 @@ class Engine:
         self.peak_mb = 0.0
         # hours whose files never arrive (a missing archive hour); set before any re-link
         self.skip: set = set(skip or ())
+        # message windows [a, b) that never arrive (simulated outages); hours inside are skipped,
+        # hours they cut get a filtered copy of each file instead of a hard link
+        self.gaps = [(pd.Timestamp(a), pd.Timestamp(b)) for a, b in (gaps or ())]
         self._index: dict | None = None
         blob = store.load_blob()
         if blob:
@@ -153,9 +160,14 @@ class Engine:
 
     def _link(self, hour: pd.Timestamp) -> list[Path]:
         out = []
+        cut = [(a, b) for a, b in self.gaps if a < hour + HOUR and b > hour]
+        if any(a <= hour and b >= hour + HOUR for a, b in cut):
+            return []
         for t, f in self._file_index().get(hour, []):
             dst = self.root / t / f.parent.name / f.name
             dst.parent.mkdir(parents=True, exist_ok=True)
+            if cut and not dst.exists():
+                self._filtered_copy(f, dst, cut)
             if not dst.exists():
                 try:
                     os.link(f, dst)
@@ -164,10 +176,27 @@ class Engine:
             out.append(dst)
         return out
 
+    @staticmethod
+    def _filtered_copy(src: Path, dst: Path, cut: list) -> None:
+        con = duckdb.connect()
+        con.execute("SET TimeZone='UTC'")
+        where = " AND ".join(
+            f"NOT (message_time >= TIMESTAMPTZ '{a.tz_convert('UTC')}' "
+            f"AND message_time < TIMESTAMPTZ '{b.tz_convert('UTC')}')"
+            for a, b in cut
+        )
+        tmp = str(dst) + ".tmp"
+        con.execute(
+            f"COPY (SELECT * FROM read_parquet('{src}') WHERE {where}) "  # noqa: S608
+            f"TO '{tmp}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+        )
+        con.close()
+        os.replace(tmp, dst)
+
     def _relink(self, done: list[str]) -> None:
         for h in done:
             if pd.Timestamp(h) not in self.skip:
-                self._link(pd.Timestamp(h))
+                self._link(pd.Timestamp(h))  # gaps are re-applied by _link
 
     def ingest(self, hour: pd.Timestamp) -> int:
         if hour in self.skip:
@@ -376,25 +405,18 @@ class Engine:
                     "h": int(r.horizon_min), "dest_tpl": r.dest_tpl, "pt_arr_s": r.pt_arr.timestamp(),
                     "lo": float(r.aci_lo), "hi": float(r.aci_hi),
                 }  # fmt: skip
-        hours = (df["feed_age_min"] / 60.0).clip(lower=0)
-        f = 1.0 + self.th.widen_k * hours
-        df["final_lo"] = np.where(
-            df["stale"], df["point"] - f * (df["point"] - df["static_lo"]), df["aci_lo"]
-        )
-        df["final_hi"] = np.where(
-            df["stale"], df["point"] + f * (df["static_hi"] - df["point"]), df["aci_hi"]
-        )
         base = {"cold": models.predict(self.art["cold_fit"], df),
                 "hist": models.predict(self.art["hist_fit"], df)}  # fmt: skip
         df["pers_point"] = base["hist"]["persistence"]["point"].to_numpy()
         df["pers_p"] = base["hist"]["persistence"]["p_late"].to_numpy()
         df["hist_point"] = base["hist"]["historical"]["point"].to_numpy()
         df["hist_p"] = base["hist"]["historical"]["p_late"].to_numpy()
-        df["p_late_final"] = np.where(df["stale"], df["hist_p"], df["p_late"])
+        g = self.guard.arrivals(df)  # the served numbers; `stale` above only holds the ACI updates
+        df[["final_lo", "final_hi", "p_late_final", "fallback_w", "stale", "stale_reason"]] = g
         df["ssd"] = df["ssd"].astype(str)
         keep = ["ssd", "rid", "route", "horizon_min", "snap_time", "pt_arr", "dest_tpl", "point",
                 "raw_lo", "raw_hi", "static_lo", "static_hi", "aci_lo", "aci_hi", "alpha",
-                "final_lo", "final_hi", "p_late", "p_late_final", "pers_point", "pers_p",
+                "final_lo", "final_hi", "p_late", "p_late_final", "fallback_w", "pers_point", "pers_p",
                 "hist_point", "hist_p", "stale", "stale_reason", "feed_age_min", "feed_gap60",
                 "feed_gap120", "feed_gap240", "svc_age_min"]  # fmt: skip
         return df[keep]
@@ -441,22 +463,13 @@ class Engine:
                 df.loc[df.index[ix], f"{side}_age_min"] = self._service_age(
                     d, df[f"{side}_rid"].iloc[ix], df["snap_time"].iloc[ix]
                 )
-        recent = df[f"feed_gap{self.th.recent_min}"]
-        feed_stale = (feed > self.th.feed_min) | (recent > self.th.feed_min)
-        hub_stale = (hub > self.th.hub_min) | (hub_gap > self.th.hub_min)
-        df["stale"] = feed_stale | hub_stale
-        worst = np.maximum(feed, recent).round(0).astype(int).astype(str)
-        hworst = np.maximum(hub, hub_gap).round(0).astype(int).astype(str)
-        df["stale_reason"] = np.where(
-            feed_stale, "feed silence " + worst + " min",
-            np.where(hub_stale, "hub silence " + hworst + " min", ""),
-        )  # fmt: skip
-        df["p_final"] = np.where(df["stale"], df["p_bar"], df["p_b"])
+        g = self.guard.pairs(df)
+        df[["p_final", "fallback_w", "stale", "stale_reason"]] = g
         df["nya"] = df["in_arr_late_s"].isna()
         df["ssd"] = df["ssd"].astype(str)
         keep = ["ssd", "hub", "in_rid", "out_rid", "in_toc", "out_toc", "horizon_min", "snap_time",
                 "plan_arr_in", "plan_dep_out", "slack_min", "mct_min", "held_group", "nya", "p_b",
-                "p_logit", "p_phys", "p_bar", "p_final", "stale", "stale_reason", "feed_age_min",
+                "p_logit", "p_phys", "p_bar", "p_final", "fallback_w", "stale", "stale_reason", "feed_age_min",
                 "hub_age_min", "hub_gap120", "feed_gap60", "feed_gap120", "feed_gap240",
                 "in_age_min", "out_age_min"]  # fmt: skip
         return df[keep]

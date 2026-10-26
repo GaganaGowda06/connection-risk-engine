@@ -177,16 +177,29 @@ class DuckStore(StateStore):
 class SqliteStore(StateStore):
     name = "sqlite"
 
-    def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.con = sqlite3.connect(str(path), isolation_level=None)
-        self.con.execute("PRAGMA journal_mode=WAL")
-        self.con.execute("PRAGMA synchronous=NORMAL")
-        self.con.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
-        self.con.execute("CREATE TABLE IF NOT EXISTS hours (h TEXT PRIMARY KEY)")
-        self._have = {
-            r[0] for r in self.con.execute("select name from sqlite_master where type='table'")
-        }
+    def __init__(self, path: Path, readonly: bool = False, keep_open: bool = False):
+        """`readonly` opens an existing ledger for the API (no write, no pragma, so a worker never
+        takes the writer's lock); `keep_open` makes close() a no-op (one connection per thread)."""
+        self.keep_open, self.readonly = keep_open, readonly
+        if readonly:
+            self.con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, isolation_level=None)
+            self.con.execute("PRAGMA query_only=1")
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.con = sqlite3.connect(str(path), isolation_level=None)
+            self.con.execute("PRAGMA journal_mode=WAL")
+            self.con.execute("PRAGMA synchronous=NORMAL")
+            self.con.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
+            self.con.execute("CREATE TABLE IF NOT EXISTS hours (h TEXT PRIMARY KEY)")
+        self._have = self._tables()
+
+    def _tables(self) -> set:
+        return {r[0] for r in self.con.execute("select name from sqlite_master where type='table'")}
+
+    def _has(self, table: str) -> bool:
+        if table not in self._have and self.readonly:  # the replay may have created it since
+            self._have = self._tables()
+        return table in self._have
 
     INDEXES = {
         "arrival": ["rid", "snap_time"],
@@ -260,22 +273,22 @@ class SqliteStore(StateStore):
         return pd.read_sql_query(sql, self.con, params=params)
 
     def all(self, kind):
-        return self._q(f"select * from {kind}") if kind in self._have else pd.DataFrame()
+        return self._q(f"select * from {kind}") if self._has(kind) else pd.DataFrame()
 
     def risk(self, rid):
         return (
             self._q("select * from arrival where rid = ?", (rid,))
-            if "arrival" in self._have
+            if self._has("arrival")
             else pd.DataFrame()
         )
 
     def pair(self, in_rid, out_rid):
-        if "pair" not in self._have:
+        if not self._has("pair"):
             return pd.DataFrame()
         return self._q("select * from pair where in_rid = ? and out_rid = ?", (in_rid, out_rid))
 
     def inbound(self, hub, start, end):
-        if "pair" not in self._have:
+        if not self._has("pair"):
             return pd.DataFrame()
         return self._q(
             "select * from pair where hub = ? and plan_arr_in >= ? and plan_arr_in < ?",
@@ -283,7 +296,8 @@ class SqliteStore(StateStore):
         )
 
     def close(self):
-        self.con.close()
+        if not self.keep_open:
+            self.con.close()
 
 
 def open_store(kind: str, directory: Path) -> StateStore:

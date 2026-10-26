@@ -8,6 +8,8 @@ a lookup: the engine computes snapshots when their hour is ingested, the API nev
 
 import json
 import os
+import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Literal
@@ -19,12 +21,11 @@ from pydantic import BaseModel, Field
 
 from rail_risk.logging import get_logger
 from rail_risk.serving import artifacts as AR
-from rail_risk.serving.engine import Thresholds
+from rail_risk.serving.guard import Guard
 from rail_risk.serving.state import SqliteStore
 
 log = get_logger("serving_api")
 STATE_DIR = Path(os.environ.get("RAIL_SERVE_STATE", "data/interim/serve/state"))
-THRESHOLDS = Path(os.environ.get("RAIL_GUARD_THRESHOLD", "reports/serving/guard_threshold.json"))
 RIDPAT = r"^\d{15}$"
 HUBS = Literal["BHM", "MAN", "BRI"]
 STARTED = time.time()
@@ -41,8 +42,25 @@ class ConnectionRequest(BaseModel):
     out_rid: str = Field(pattern=RIDPAT)
 
 
+_LOCAL = threading.local()
+
+
 def _store() -> SqliteStore:
-    return SqliteStore(STATE_DIR / "state.sqlite")
+    """One read-only connection per request thread and ledger, opened once and kept (a new
+    connection per request was the cost that made the single-process service collapse at 150
+    requests a second)."""
+    path = STATE_DIR / "state.sqlite"
+    cache = _LOCAL.__dict__.setdefault("stores", {})
+    s = cache.get(path)
+    if s is None:
+        if not path.exists():  # nothing replayed yet: an empty ledger, so /health can say so
+            SqliteStore(path).close()
+        try:
+            s = SqliteStore(path, readonly=True, keep_open=True)
+        except sqlite3.OperationalError as e:
+            raise HTTPException(503, f"state not ready: {e}") from e
+        cache[path] = s
+    return s
 
 
 _FRESH_CACHE: dict = {}
@@ -66,14 +84,14 @@ def _fresh(store: SqliteStore) -> tuple[pd.Timestamp, int | None] | None:
 
 
 def _meta(store: SqliteStore) -> dict:
-    th = _thresholds()
+    flag_min = _guard().flag_min
     got = _fresh(store)
     if not got:
         return {"data_as_of": None, "feed_age_min": None, "stale": True,
                 "stale_reason": "no data ingested yet", "hours_done": 0}  # fmt: skip
     clock, last = got
     age = float(int(clock.timestamp() // 60) - last) if last is not None else 1e6
-    stale = age > th.feed_min
+    stale = age > flag_min
     return {
         "data_as_of": str(clock), "feed_age_min": round(age, 1), "stale": bool(stale),
         "stale_reason": f"no message for {age:.0f} min" if stale else "", "hours_done": None,
@@ -83,10 +101,11 @@ def _meta(store: SqliteStore) -> dict:
 _TH: dict = {}
 
 
-def _thresholds() -> Thresholds:
-    if "t" not in _TH:
-        _TH["t"] = Thresholds.load(THRESHOLDS)
-    return _TH["t"]
+def _guard() -> Guard:
+    if "g" not in _TH:
+        path = Path(os.environ.get("RAIL_GUARD", "reports/serving/guard_v2.json"))
+        _TH["g"] = Guard.from_json(json.loads(path.read_text())) if path.exists() else Guard()
+    return _TH["g"]
 
 
 def _ids() -> dict:
@@ -136,6 +155,7 @@ def risk(req: RiskRequest) -> dict:
             "horizon_min": int(r.horizon_min), "scored_at": r.snap_time, "route": r.route,
             "point_min": _clean(r.point), "range80_min": [_clean(r.final_lo), _clean(r.final_hi)],
             "p_delay_15": _clean(r.p_late_final), "stale": bool(r.stale),
+            "fallback_weight": _clean(getattr(r, "fallback_w", 0.0)),
             "stale_reason": r.stale_reason or "",
         })  # fmt: skip
     out = {
@@ -165,7 +185,7 @@ def connection(req: ConnectionRequest) -> dict:
     rows = rows.sort_values("snap_time")
     snaps = [
         {"horizon_min": int(r.horizon_min), "scored_at": r.snap_time, "hub": r.hub,
-         "p_miss": _clean(r.p_final), "slack_min": _clean(r.slack_min), "mct_min": _clean(r.mct_min),
+         "p_miss": _clean(r.p_final), "fallback_weight": _clean(getattr(r, "fallback_w", 0.0)), "slack_min": _clean(r.slack_min), "mct_min": _clean(r.mct_min),
          "inbound_arrived": bool(not r.nya), "stale": bool(r.stale), "stale_reason": r.stale_reason or ""}
         for r in rows.itertuples()
     ]  # fmt: skip

@@ -7,6 +7,7 @@ back where it was: the ranges' state and the pending outcomes are in the committ
 """
 
 import argparse
+import json
 import os
 import threading
 from datetime import date, timedelta
@@ -18,9 +19,14 @@ import uvicorn
 from rail_risk.logging import get_logger
 from rail_risk.serving import engine as E
 from rail_risk.serving import state as S
+from rail_risk.serving.guard import Guard
 
 log = get_logger("serving_run")
 BIND = "0.0.0.0"  # noqa: S104  (inside the container; compose publishes on 127.0.0.1 only)
+
+
+def load_guard(path: Path) -> Guard:
+    return Guard.from_json(json.loads(path.read_text())) if path.exists() else Guard()
 
 
 def replay(args: argparse.Namespace, stop: threading.Event) -> None:
@@ -31,9 +37,11 @@ def replay(args: argparse.Namespace, stop: threading.Event) -> None:
     d0, d1 = start.tz_convert("Europe/London").date(), end.tz_convert("Europe/London").date()
     ssds = [d0 + timedelta(days=i) for i in range(-1, (d1 - d0).days + 2)]
     skip = [pd.Timestamp(h, tz="UTC") for h in args.skip]
+    guard = load_guard(Path(args.guard))
     eng = E.Engine(
-        store, Path(args.source), Path(args.store_root), th, args.split, ssds=ssds, skip=skip
-    )
+        store, Path(args.source), Path(args.store_root), th, args.split, ssds=ssds, skip=skip,
+        guard=guard,
+    )  # fmt: skip
     done = {pd.Timestamp(h) for h in store.hours_done()}
     if not done:
         eng.preload(start, ssds)
@@ -59,14 +67,19 @@ def main() -> None:
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
     ap.add_argument("--skip", nargs="*", default=[], help="UTC hours that never arrive")
+    ap.add_argument("--guard", default="reports/serving/guard_v2.json")
     ap.add_argument("--serve", action="store_true")
+    ap.add_argument("--workers", type=int, default=1, help="uvicorn worker processes")
+    ap.add_argument("--no-replay", action="store_true", help="serve an existing ledger only")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--die-after-hours", type=int, default=0, help="test: exit hard after N hours")
     args = ap.parse_args()
     os.environ["RAIL_SERVE_STATE"] = args.state
     os.environ["RAIL_GUARD_THRESHOLD"] = args.thresholds
+    os.environ["RAIL_GUARD"] = args.guard
     stop = threading.Event()
-    if args.split == "oot_week":
+    replaying = not args.no_replay
+    if replaying and args.split == "oot_week":
         from rail_risk.ingest.pport_extract import reading_split
 
         ctx = reading_split("oot_week", "oot_replay")
@@ -75,11 +88,16 @@ def main() -> None:
 
         ctx = contextlib.nullcontext()
     with ctx:
-        t = threading.Thread(target=replay, args=(args, stop), daemon=True)
-        t.start()
+        t = threading.Thread(target=replay, args=(args, stop), daemon=True) if replaying else None
+        if t:
+            t.start()
         if args.serve:
-            uvicorn.run("rail_risk.serving.app:app", host=BIND, port=args.port, log_level="warning")
-        t.join()
+            # workers > 1: this process supervises them (and runs the replay thread); each worker
+            # is its own process with its own read-only SQLite connections
+            uvicorn.run("rail_risk.serving.app:app", host=BIND, port=args.port,
+                        workers=args.workers, log_level="warning")  # fmt: skip
+        if t:
+            t.join()
 
 
 if __name__ == "__main__":

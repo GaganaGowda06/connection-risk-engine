@@ -37,6 +37,7 @@ services:
       --state /app/data/interim/serve/state_${REPLAY_NAME:-validation}
       --store-root /app/data/interim/serve/store_${REPLAY_NAME:-validation}
       --die-after-hours ${REPLAY_DIE:-0} --skip ${REPLAY_SKIP:-}
+      --workers ${SERVE_WORKERS:-1} ${SERVE_FLAGS:-}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -47,6 +48,10 @@ services:
       - ./reports/serving:/app/reports/serving:ro
       - ./reports/network_model:/app/reports/network_model:ro
     mem_limit: 5g
+    # init: a real PID 1 (tini). Without it a SIGKILL sent to the server process inside the
+    # container is ignored by PID 1; with it the container exits and the policy restarts it.
+    # A manual `docker kill` or `docker stop` is a deliberate stop and is not restarted.
+    init: true
     restart: unless-stopped
     environment:
       MLFLOW_DISABLE_AGENT_HINT: "1"

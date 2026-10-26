@@ -1,0 +1,27 @@
+{
+ "design": "blend",
+ "flag_min": 12.0,
+ "flag_window": 240,
+ "widen_window": 60,
+ "widen_k": 0.0,
+ "bin_min": 12.0,
+ "bin_window": 60,
+ "pair_w": [
+  -0.42482050968913143,
+  3.152024975283548,
+  -2.4247906578304184,
+  -2.255878778503368
+ ],
+ "late_w": [
+  -0.10787277805874479,
+  -0.39293633517642607,
+  -0.970702664202882,
+  1.035153972348143
+ ],
+ "range_w": [
+  0.642935846830524,
+  0.002143126654172724,
+  0.004628576216294776
+ ],
+ "chosen_on": "simulated gaps, scripts/stage6_guard_sim.py, fit half; scored on the other half; train and validation days only"
+}
