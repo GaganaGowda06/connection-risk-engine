@@ -295,6 +295,29 @@ class SqliteStore(StateStore):
             (hub, start, end),
         )
 
+    def inbound_summary(self, hub, start, end, limit) -> pd.DataFrame:
+        """Per inbound service in the window: planned arrival, number of scored rows, and the latest
+        row's probability and stale flag. Grouped in SQL, so a request touches `limit` services
+        instead of loading every scored pair of the hub."""
+        if not self._has("pair"):
+            return pd.DataFrame()
+        head = self._q(
+            "select in_rid, plan_arr_in, count(*) as n, max(snap_time) as last_t from pair "
+            "where hub = ? and plan_arr_in >= ? and plan_arr_in < ? "
+            "group by in_rid, plan_arr_in order by plan_arr_in limit ?",
+            (hub, start, end, limit),
+        )
+        if head.empty:
+            return head
+        marks = ",".join("?" * len(head))
+        last = self._q(
+            f"select in_rid, snap_time, p_final, stale from pair where hub = ? "  # noqa: S608
+            f"and in_rid in ({marks}) and plan_arr_in >= ? and plan_arr_in < ?",
+            (hub, *head["in_rid"], start, end),
+        )
+        last = last.sort_values("snap_time").groupby("in_rid").tail(1)
+        return head.merge(last[["in_rid", "p_final", "stale"]], on="in_rid", how="left")
+
     def close(self):
         if not self.keep_open:
             self.con.close()

@@ -1,0 +1,64 @@
+{
+ "rate_per_s": 50.0,
+ "generator_processes": 1,
+ "seconds": 30.0,
+ "requests": 1500,
+ "wall_s": 30.0,
+ "overall_ms": {
+  "n": 1500,
+  "p50": 46.6,
+  "p95": 48.7,
+  "p99": 49.2,
+  "max": 53.0
+ },
+ "by_endpoint_ms": {
+  "risk": {
+   "n": 726,
+   "p50": 46.7,
+   "p95": 48.5,
+   "p99": 49.0,
+   "max": 49.4
+  },
+  "connection": {
+   "n": 545,
+   "p50": 47.2,
+   "p95": 48.9,
+   "p99": 49.5,
+   "max": 53.0
+  },
+  "inbound": {
+   "n": 156,
+   "p50": 16.3,
+   "p95": 28.3,
+   "p99": 44.8,
+   "max": 49.3
+  },
+  "health": {
+   "n": 73,
+   "p50": 45.8,
+   "p95": 46.8,
+   "p99": 46.9,
+   "max": 47.0
+  }
+ },
+ "errors_5xx_or_failed": {
+  "risk": 0,
+  "connection": 0,
+  "inbound": 0,
+  "health": 0
+ },
+ "status_codes": {
+  "risk": {
+   "200": 726
+  },
+  "connection": {
+   "200": 545
+  },
+  "inbound": {
+   "200": 156
+  },
+  "health": {
+   "200": 73
+  }
+ }
+}

@@ -29,8 +29,9 @@ def pct(a) -> dict:
     }  # fmt: skip
 
 
-async def run(base: str, keys: dict, rate: float, seconds: float) -> dict:
-    rng = np.random.default_rng(0)
+async def run(base: str, keys: dict, rate: float, seconds: float, seed: int = 0) -> dict:
+    rng = np.random.default_rng(seed)
+    keys = {k: np.asarray(v) for k, v in keys.items()}
     lat: dict[str, list] = {"risk": [], "connection": [], "inbound": [], "health": []}
     errors: dict[str, int] = {k: 0 for k in lat}
     status: dict[str, dict] = {k: {} for k in lat}
@@ -43,11 +44,15 @@ async def run(base: str, keys: dict, rate: float, seconds: float) -> dict:
                 if kind == "risk":
                     r = await client.post("/risk", json={"rid": str(rng.choice(keys["rids"]))})
                 elif kind == "connection":
-                    a, b = keys["pairs"][rng.integers(len(keys["pairs"]))]
+                    a, b = (str(x) for x in keys["pairs"][rng.integers(len(keys["pairs"]))])
                     r = await client.post("/connection", json={"in_rid": a, "out_rid": b})
                 elif kind == "inbound":
                     r = await client.get(
-                        "/inbound", params={"hub": str(rng.choice(["BHM", "MAN", "BRI"]))}
+                        "/inbound",
+                        params={
+                            "hub": str(rng.choice(["BHM", "MAN", "BRI"])),
+                            "at": str(rng.choice(keys["inbound_at"])),
+                        },
                     )
                 else:
                     r = await client.get("/health")
@@ -72,10 +77,40 @@ async def run(base: str, keys: dict, rate: float, seconds: float) -> dict:
                 await asyncio.sleep(delay)
             tasks.append(asyncio.create_task(one(str(k))))
         await asyncio.gather(*tasks)
-        wall = time.perf_counter() - t0
+    return {
+        "lat": lat,
+        "errors": errors,
+        "status": status,
+        "wall": time.perf_counter() - t0,
+        "n": len(kinds),
+    }
+
+
+def _proc(args):
+    base, keys, rate, seconds, seed = args
+    return asyncio.run(run(base, keys, rate, seconds, seed))
+
+
+def summarise(parts: list, rate: float, seconds: float, procs: int) -> dict:
+    lat = {k: [x for p in parts for x in p["lat"][k]] for k in parts[0]["lat"]}
+    errors = {k: sum(p["errors"][k] for p in parts) for k in lat}
+    status: dict = {k: {} for k in lat}
+    for p in parts:
+        for k, d in p["status"].items():
+            for c, n in d.items():
+                status[k][c] = status[k].get(c, 0) + n
     allv = np.array([x for v in lat.values() for x in v])
-    return {"rate_per_s": rate, "seconds": seconds, "requests": int(len(kinds)), "wall_s": round(wall, 1), "overall_ms": pct(allv),
-            "by_endpoint_ms": {k: pct(np.array(v)) for k, v in lat.items()}, "errors_5xx_or_failed": errors, "status_codes": status}  # fmt: skip
+    return {"rate_per_s": rate, "generator_processes": procs, "seconds": seconds,
+            "requests": int(sum(p["n"] for p in parts)), "wall_s": round(max(p["wall"] for p in parts), 1),
+            "overall_ms": pct(allv), "by_endpoint_ms": {k: pct(np.array(v)) for k, v in lat.items()},
+            "errors_5xx_or_failed": errors, "status_codes": status}  # fmt: skip
+
+
+def rids_days(state: str) -> list:
+    con = sqlite3.connect(Path(state) / "state.sqlite")
+    rows = [r[0] for r in con.execute("select distinct ssd from arrival")]
+    con.close()
+    return rows
 
 
 def main() -> None:
@@ -84,6 +119,7 @@ def main() -> None:
     ap.add_argument("--base", default="http://127.0.0.1:8000")
     ap.add_argument("--rate", type=float, default=50)
     ap.add_argument("--seconds", type=float, default=60)
+    ap.add_argument("--procs", type=int, default=1, help="generator processes (rate is split)")
     ap.add_argument("--out", default="reports/serving/loadtest.json")
     args = ap.parse_args()
     con = sqlite3.connect(Path(args.state) / "state.sqlite")
@@ -96,7 +132,19 @@ def main() -> None:
         .tolist()
     )
     con.close()
-    res = asyncio.run(run(args.base, {"rids": rids, "pairs": pairs}, args.rate, args.seconds))
+    # busy replay clocks (06:00 to 21:00 UTC on the ledger's days), so /inbound returns real rows
+    days = sorted({str(x)[:10] for x in rids_days(args.state)})
+    at = [f"{d} {h:02d}:{m:02d}" for d in days for h in range(6, 21) for m in (0, 30)]
+    keys = {"rids": rids, "pairs": pairs, "inbound_at": at}
+    jobs = [(args.base, keys, args.rate / args.procs, args.seconds, i) for i in range(args.procs)]
+    if args.procs == 1:
+        parts = [_proc(jobs[0])]
+    else:
+        import multiprocessing as mp
+
+        with mp.get_context("spawn").Pool(args.procs) as pool:
+            parts = pool.map(_proc, jobs)
+    res = summarise(parts, args.rate, args.seconds, args.procs)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(res, indent=1))
     print(json.dumps(res, indent=1))

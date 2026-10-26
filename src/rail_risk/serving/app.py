@@ -196,30 +196,31 @@ def connection(req: ConnectionRequest) -> dict:
 
 
 @app.get("/inbound")
-def inbound(hub: HUBS, limit: int = Query(50, ge=1, le=500)) -> dict:
+def inbound(
+    hub: HUBS,
+    limit: int = Query(50, ge=1, le=500),
+    at: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$"),
+) -> dict:
+    """Services due at the hub in the next hour. `at` (UTC, replay only) asks as of an earlier
+    clock; the default is the ledger's clock."""
     store = _store()
     try:
         meta = _meta(store)
         if not meta["data_as_of"]:
             raise HTTPException(503, "no data yet")
-        clock = pd.Timestamp(meta["data_as_of"])
+        clock = pd.Timestamp(at, tz="UTC") if at else pd.Timestamp(meta["data_as_of"])
         start = (clock - pd.Timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
         end = (clock + pd.Timedelta(minutes=60)).strftime("%Y-%m-%d %H:%M:%S")
-        rows = store.inbound(hub, start, end)
-    finally:
-        store.close()
+        rows = store.inbound_summary(hub, start, end, limit)
+    except sqlite3.OperationalError as e:
+        raise HTTPException(503, f"state not ready: {e}") from e
     if rows.empty:
         return {"hub": hub, "arrivals": [], "freshness": meta, "ids": _ids()}
-    g = (
-        rows.sort_values("snap_time")
-        .groupby("in_rid")
-        .tail(1)
-        .sort_values("plan_arr_in")
-        .head(limit)
-    )
-    arr = [{"rid": r.in_rid, "planned_arrival": r.plan_arr_in, "connections_scored": int(
-        (rows["in_rid"] == r.in_rid).sum()), "latest_p_miss": _clean(r.p_final), "stale": bool(r.stale)}
-        for r in g.itertuples()]  # fmt: skip
+    arr = [
+        {"rid": r.in_rid, "planned_arrival": r.plan_arr_in, "connections_scored": int(r.n),
+         "latest_p_miss": _clean(r.p_final), "stale": bool(r.stale)}
+        for r in rows.itertuples()
+    ]  # fmt: skip
     return {"hub": hub, "arrivals": arr, "freshness": meta, "ids": _ids()}
 
 

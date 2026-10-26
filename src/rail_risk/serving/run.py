@@ -77,6 +77,11 @@ def main() -> None:
     os.environ["RAIL_SERVE_STATE"] = args.state
     os.environ["RAIL_GUARD_THRESHOLD"] = args.thresholds
     os.environ["RAIL_GUARD"] = args.guard
+    if args.serve and (Path(args.state) / "state.sqlite").exists():
+        # a ledger written before the indexes existed would be scanned whole by every request
+        ix = S.SqliteStore(Path(args.state) / "state.sqlite")
+        ix._index()
+        ix.close()
     stop = threading.Event()
     replaying = not args.no_replay
     if replaying and args.split == "oot_week":

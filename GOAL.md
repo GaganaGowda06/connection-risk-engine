@@ -41,4 +41,4 @@ Anchoring, passivity, overconfidence on familiar data, reflex apologies, missing
 ## Done means
 Tests 1 to 9 pass, with evidence from real runs and run ids, stated honestly in the README.
 
-Current plan: see PLAN.md, still at Stage 6 (local service and out-of-time replay; test 9 met, test 6a not met under the strict rule)
+Current plan: see PLAN.md, still at Stage 6 (local service and out-of-time replay; tests 6a and 9 met, Stage 7 held back: the redesigned guard is still worse than no guard on the real 2026-10-20 pair Brier)

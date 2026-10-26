@@ -1,0 +1,36 @@
+{
+ "rate_per_s": 600.0,
+ "generator_processes": 6,
+ "seconds": 30.0,
+ "requests": 18000,
+ "wall_s": 30.0,
+ "overall_ms": {
+  "n": 0
+ },
+ "by_endpoint_ms": {
+  "risk": {
+   "n": 0
+  },
+  "connection": {
+   "n": 0
+  },
+  "inbound": {
+   "n": 0
+  },
+  "health": {
+   "n": 0
+  }
+ },
+ "errors_5xx_or_failed": {
+  "risk": 9080,
+  "connection": 6221,
+  "inbound": 1785,
+  "health": 914
+ },
+ "status_codes": {
+  "risk": {},
+  "connection": {},
+  "inbound": {},
+  "health": {}
+ }
+}
