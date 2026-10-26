@@ -1,0 +1,57 @@
+{
+ "label": "SECOND LOOK at the 2026-10-20 window (oot_week was closed for tuning; the guard was fixed on simulated gaps first)",
+ "window_utc": [
+  "2026-10-20 09:00:00+00:00",
+  "2026-10-20 15:00:00+00:00"
+ ],
+ "pair_rows": 50370,
+ "arrival_rows": 814,
+ "arrival_held_out_rows": 120,
+ "results": {
+  "no_guard": {
+   "pair_brier": 0.0378943976695498,
+   "pair_brier_flagged_rows": 0.08341696123576028,
+   "pair_stale_share": 0.31171332142148106,
+   "pair_mean_fallback_weight": 0.0,
+   "held_out_coverage": 0.7916666666666666,
+   "held_out_mean_width": 10.344720130557205,
+   "held_out_brier_p_late": 0.05073653661344578,
+   "arrival_stale_share": 0.3416666666666667
+  },
+  "stage6_first_guard": {
+   "pair_brier": 0.09080037670380814,
+   "pair_brier_flagged_rows": 0.25314335853246706,
+   "pair_stale_share": 0.31171332142148106,
+   "pair_mean_fallback_weight": 0.31171332142148106,
+   "held_out_coverage": 0.7916666666666666,
+   "held_out_mean_width": 10.375095412340615,
+   "held_out_brier_p_late": 0.06720018105484912,
+   "arrival_stale_share": 0.3416666666666667
+  },
+  "frozen_guard": {
+   "pair_brier": 0.08605131569770351,
+   "pair_brier_flagged_rows": 0.08605131569770351,
+   "pair_stale_share": 1.0,
+   "pair_mean_fallback_weight": 0.2650522183447312,
+   "held_out_coverage": 0.8,
+   "held_out_mean_width": 10.380256813249039,
+   "held_out_brier_p_late": 0.05041553643438314,
+   "arrival_stale_share": 1.0
+  },
+  "label_check": {
+   "share_of_rows_whose_inbound_arrival_is_not_in_the_archive": 0.08711534643637085,
+   "share_of_flagged_rows_with_that": 0.23584485064645563,
+   "miss_rate_with_arrival_recorded": 0.06104562654951938,
+   "miss_rate_without_arrival_recorded": 1.0
+  },
+  "pair_brier_rows_with_arrival_recorded": {
+   "no_guard": 0.03345254002866727,
+   "stage6_first_guard": 0.030419570814714712,
+   "frozen_guard": 0.028887479621486065
+  },
+  "gap_bucket_alone": {
+   "pair_brier": 0.11880648207359708
+  }
+ },
+ "oot_gap_second_look_done": true
+}
