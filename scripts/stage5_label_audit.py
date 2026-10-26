@@ -17,6 +17,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from rail_risk.connections import build as CB
 from rail_risk.ingest.pport_extract import GATE_AUDIT, reading_split, train_pool_table
@@ -53,6 +54,8 @@ def classify(df: pd.DataFrame, deact: set) -> pd.DataFrame:
             "missing_and_cancelled",
             "missing_and_deactivated_not_cancelled",
             "to_unknown",
+            "variant_ignoring_deactivation",
+            "inbound_has_deactivation",
         ]
     ].sum()
     return g.astype(int)
@@ -62,6 +65,8 @@ def stored_block(block: str, deact_fn) -> pd.DataFrame:
     parts = []
     for d in sorted(Path(f"data/interim/stage5/{block}").glob("service_date=*/part.parquet")):
         ssd = date.fromisoformat(d.parent.name.split("=")[1])
+        if pq.read_metadata(d).num_rows == 0:  # a day with no pairs (25 and 26 December)
+            continue
         df = pd.read_parquet(d, columns=COLS)
         parts.append(classify(df, deact_fn(ssd)))
     return pd.concat(parts).groupby(level=0).sum()
