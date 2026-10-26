@@ -22,7 +22,9 @@ def test_unknown_needs_no_arrival_no_cancel_and_no_deactivation():
             "in_cancel_final": [False, True, False, False, False],
         }
     )
-    g = audit.classify(df, deact={"b", "d", "e"})  # a: no arrival, no cancel, no deactivation
+    g = audit.classify(
+        df, deact={"b", "c", "d", "e"}
+    )  # only a has no arrival, no cancel, no deactivation
     row = g.loc["BHM"]
     assert row["to_unknown"] == 1 and row["missing_arrival"] == 3
     assert row["missing_and_cancelled"] == 1 and row["variant_ignoring_deactivation"] == 2
