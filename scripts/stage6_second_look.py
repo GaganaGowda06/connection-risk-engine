@@ -43,7 +43,9 @@ def main() -> None:
     ap.add_argument("--state", default="data/interim/serve/state_oot")
     args = ap.parse_args()
     dirty = subprocess.run(  # noqa: S603
-        ["git", "status", "--porcelain", "--untracked-files=no"],  # noqa: S607 capture_output=True, text=True
+        ["git", "status", "--porcelain", "--untracked-files=no"],  # noqa: S607
+        capture_output=True,
+        text=True,
     ).stdout.strip()
     if dirty:
         raise SystemExit("run the second look from a clean commit")
