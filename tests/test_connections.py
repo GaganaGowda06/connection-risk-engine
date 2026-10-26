@@ -133,3 +133,24 @@ def test_unlabelled_rows_never_update():
     y2[::2] = np.nan
     q, used = O.run(hub, t, p, y2, r, 0.01)
     assert np.isfinite(q).all()
+
+
+def test_ran_inbound_with_no_arrival_and_no_cancellation_is_unknown_not_a_miss():
+    st: dict = {}
+    df, st = B.label(frame(act_arr_in=NAT, in_ran=[True], in_cancel_final=[False]), st)
+    assert df.empty and st["unknown_inbound_dropped"] == 1
+    df, _ = B.label(frame(act_arr_in=NAT, in_ran=[True], in_cancel_final=[True]), {})
+    assert df["miss"].iloc[0] == 1.0
+
+
+def test_stored_files_are_relabelled_on_read():
+    from rail_risk.connections import data as DD
+
+    df = pd.DataFrame(
+        {
+            "act_arr_in": [NAT[0], NAT[0], ts("2026-10-01 10:00")],
+            "in_cancel_final": [False, True, False],
+            "miss": [1.0, 1.0, 0.0],
+        }
+    )
+    assert DD.apply_label_rule(df)["miss"].tolist() == [1.0, 0.0]

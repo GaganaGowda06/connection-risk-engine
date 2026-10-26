@@ -8,7 +8,8 @@ scheduled departure minus the horizon; state uses only messages with message_tim
 comes from data/ref/mct.csv by the real TOC pair (TSI over MSN); a pair with no MCT is dropped.
 
 Outcomes: miss = inbound actual arrival + MCT is later than the outbound's actual departure; an
-inbound that was cancelled or never reached the hub is a miss. An outbound that was cancelled or
+inbound that was cancelled (in_cancel_final) is a miss, one with no arrival and no cancellation
+signal is unknown and dropped (rule of 2026-10-26). An outbound that was cancelled or
 never left the hub is reported separately and has no label (out_cancel = 1). A service with no
 actual and no cancellation is data missing: the pair is dropped. Nothing here names a route.
 """
@@ -419,8 +420,9 @@ def label(df: pd.DataFrame, stats: dict) -> tuple[pd.DataFrame, dict]:
     """Outcome rules (see the module docstring). Rows with no usable outcome are dropped."""
     arrived = df["act_arr_in"].notna()
     departed = df["act_dep_out"].notna()
-    in_miss_status = ~arrived & (df["in_cancel_final"] | df["in_ran"])
-    in_unknown = ~arrived & ~in_miss_status
+    # 2026-10-26 rule: an inbound with no arrival at the hub and no cancellation signal is unknown
+    # (the message that carried the arrival may be missing from the archive), not a miss
+    in_unknown = ~arrived & ~df["in_cancel_final"]
     out_cancel = ~departed & (df["out_cancel_final"] | df["out_ran"])
     out_unknown = ~departed & ~out_cancel
     df = df.assign(out_cancel=out_cancel.astype(int))

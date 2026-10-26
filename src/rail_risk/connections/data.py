@@ -55,6 +55,14 @@ def labelled(df: pd.DataFrame) -> pd.DataFrame:
     return df[(df["out_cancel"] == 0) & df["miss"].notna()]
 
 
+def apply_label_rule(df: pd.DataFrame) -> pd.DataFrame:
+    """The 2026-10-26 label rule on pair files written under the old one: an inbound with no arrival
+    and no cancellation signal (in_cancel_final) is unknown, so its rows are dropped. Needs the
+    columns act_arr_in and in_cancel_final that the stored files carry."""
+    unknown = df["act_arr_in"].isna() & ~df["in_cancel_final"].fillna(False).astype(bool)
+    return df[~unknown]
+
+
 def not_arrived(df: pd.DataFrame) -> pd.Series:
     return df["in_arr_late_s"].isna()
 
