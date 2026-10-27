@@ -1,0 +1,8 @@
+# Routes for the TD (Train Describer) stage, picked from the 25 in routes.yaml by SMART coverage
+# (reports/td/route_coverage.json, scripts/td_route_coverage.py), not by preference.
+# SMART maps every calling station on 24 of 25 routes (glq-abd 0.36), so coverage alone does not
+# separate them; ties are broken by SMART rows per station (berth detail), services per day, a mix of
+# lengths, two held-out routes and different lines (WCML, ECML, GWR west, Pennines).
+# Station coverage and rows per station: eus-wfj 1.00/116, bhm-eus 1.00/79, kgx-lds 1.00/95,
+# bri-cdf 1.00/99 (held out), man-shf 1.00/59 (held out).
+td_routes: [eus-wfj, bhm-eus, kgx-lds, bri-cdf, man-shf]
