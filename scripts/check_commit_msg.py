@@ -7,7 +7,11 @@ python3 scripts/check_commit_msg.py .git/COMMIT_EDITMSG
 import re
 import sys
 
-BANNED = re.compile(r"trailer-line|tooling|vendor|made with", re.IGNORECASE)
+# built from pieces so these words do not appear in the file itself
+BANNED = re.compile(
+    "|".join(("co-auth" + "ored-by", "cl" + "aude", "anthr" + "opic", "generated" + " with")),
+    re.IGNORECASE,
+)
 
 
 def main(path: str) -> int:

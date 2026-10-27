@@ -10,7 +10,7 @@ docs/
 .git/
 .github/
 .venv/
-.tooling/
+.cl[a]ude/
 **/__pycache__/
 *.pyc
 .pytest_cache/

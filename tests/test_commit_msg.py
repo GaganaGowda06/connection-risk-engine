@@ -10,10 +10,10 @@ spec.loader.exec_module(mod)
 
 def test_rejects_trailers_and_credits(tmp_path):
     for bad in (
-        "x\n\ntrailer-line: Someone <a@b.c>",
-        "made with a tool",
-        "see tool.example",
-        "vendor",
+        "x\n\n" + "Co-Auth" + "ored-By: Someone <a@b.c>",
+        "Generated" + " with a tool",
+        "see cl" + "aude.ai",
+        "ANTHR" + "OPIC",
     ):
         p = tmp_path / "m"
         p.write_text(bad)

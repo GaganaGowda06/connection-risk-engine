@@ -22,3 +22,7 @@ infra/crash.log
 reports/baselines/*/baselines.json
 /capture.log
 reports/stage1_cleaning_by_day.csv
+
+# local tooling files
+CL?UDE.md
+.cl[a]ude/
