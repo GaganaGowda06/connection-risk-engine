@@ -31,3 +31,8 @@ repos:
         entry: python3 scripts/check_invisible_chars.py
         language: system
         files: '\.md$'
+      - id: commit-msg-clean
+        name: commit message has no trailer or tool credit
+        entry: python3 scripts/check_commit_msg.py
+        language: system
+        stages: [commit-msg]

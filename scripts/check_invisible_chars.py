@@ -9,7 +9,7 @@ import unicodedata
 from pathlib import Path
 
 ALLOWED = {"\n", "\r", "\t"}
-EXTRA = {" ", " ", " ", " ", "　", "ᅟ", "ᅠ", "ㅤ", "﻿"}
+EXTRA = {"\u00a0", "\u2028", "\u2029", "\u202f", "\u3000", "\u115f", "\u1160", "\u3164", "\ufeff"}
 
 
 def invisible(ch: str) -> bool:

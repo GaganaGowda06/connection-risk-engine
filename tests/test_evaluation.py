@@ -236,6 +236,6 @@ def test_reports_are_written_without_em_dashes(tmp_path):
     result = evaluate(df, s, BANDS, CFG)
     write_reports(result, tmp_path)
     md = (tmp_path / "baselines.md").read_text()
-    assert "—" not in md and "bar to beat" in md and "## T-60 minutes" in md
+    assert "\u2014" not in md and "bar to beat" in md and "## T-60 minutes" in md
     assert (tmp_path / "baselines.json").exists()
     assert "provisional" in md

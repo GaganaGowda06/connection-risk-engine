@@ -82,7 +82,7 @@ def test_report_ranks_features_flags_skips_and_handles_thin_live_data(tmp_path):
     data = json.loads((tmp_path / "drift.json").read_text())
     assert data["thresholds"] == {"watch": WATCH, "act": ACT}
     md = (tmp_path / "drift.md").read_text()
-    assert "| x |" in md and "—" not in md and "–" not in md
+    assert "| x |" in md and "\u2014" not in md and "\u2013" not in md
     thin = drift_report(train, live.head(5), ["x"], [])
     assert thin["features"] == [] and "fewer than" in thin["note"]
     write_report(thin, tmp_path)

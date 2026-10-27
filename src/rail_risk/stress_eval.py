@@ -699,7 +699,7 @@ def _live_comparison(cells: dict[str, Any], cfg: StressConfig) -> dict[str, Any]
 
 # report
 
-PLAIN_ONLY = ("—", "–")  # the house style bans em and en dashes
+PLAIN_ONLY = ("\u2014", "\u2013")  # the house style bans em and en dashes
 
 
 def _table(header: list[str], body: list[list[str]]) -> list[str]:

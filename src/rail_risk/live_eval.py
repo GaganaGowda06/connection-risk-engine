@@ -1933,7 +1933,7 @@ def render_markdown(r: dict[str, Any]) -> str:
         "test where it does."
     )
     text = "\n".join(out) + "\n"
-    for bad in ("—", "–"):
+    for bad in ("\u2014", "\u2013"):
         text = text.replace(bad, ", ")
     return text
 

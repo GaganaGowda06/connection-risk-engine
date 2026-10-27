@@ -260,7 +260,7 @@ def test_connections_section_is_written_in_place_and_has_no_em_dash(tmp_path):
     assert path.read_text(encoding="utf-8") == first  # a rerun replaces, it does not append
     assert first.startswith("# Model results") and first.count(START) == 1
     assert first.count(END) == 1
-    assert "—" not in connections_section(result)
+    assert "\u2014" not in connections_section(result)
 
 
 def test_connections_section_has_no_delay_repay_alert_and_shows_subset_and_rounding():
