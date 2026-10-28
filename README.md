@@ -1,182 +1,79 @@
 # Connection Risk Engine
 
-Trains show on time until they don't. This gives an honest range instead: when a train will really arrive, how likely it is to be badly late, and whether a passenger will make their connection.
-
-It uses open UK rail data on two real routes: Birmingham New Street to London Euston, and Aston to Birmingham New Street, which is the first leg of an Aston to Euston journey with a change at New Street.
+Calibrated arrival ranges and connection risk for GB trains, built on open Darwin data and tested on routes the model never trained on.
 
 ## What it does
 
-For a train that is running now, it says "Expected 09:49 to 09:54" instead of a single time. The range is built so that about 8 in 10 trains land inside it. It also gives the chance of being 15, 30 or 60 minutes late, and the expected Delay Repay in pounds when you enter your ticket price.
+For a passenger: a train that shows "on time" until the last minute is replaced by an honest range ("expected 09:49 to 09:54", built so that about 8 in 10 trains land inside it), the chance of being 15 minutes or more late, and the chance of missing a connection at Birmingham New Street, Manchester Piccadilly or Bristol Temple Meads. Delay Repay is priced only where the operator's rules are verified.
 
-![Arrival range for a live train](docs/img/ui_live.png)
-
-For the Aston to Euston journey it answers the question a passenger actually has: will I make the change? It picks the first Euston train you can make, says the chance you miss it in plain words, shows when you reach Euston, and raises an alert when the chance is high.
-
-![The My connection tab](docs/img/ui_connection.png)
-
-Everything is also available as a web API (`/risk`, `/connection`, `/inbound`, `/services`, `/health`) so another product could use it.
+For an engineer: one LightGBM model with no route, station or operator identity predicts arrival delay for any route. Online conformal calibration keeps the 80% ranges honest per route. A second model scores connection pairs with parsed minimum connection times. A FastAPI service answers `/risk`, `/connection`, `/inbound` and `/health`, and flags stale input.
 
 ## Results
 
-All figures are on a test block the model never saw: 7 days, 2026-10-09 to 2026-10-15. The model was trained on 159 days (2026-04-15 to 2026-09-22) and tuned on 14. The arrival model is MLflow run `4c88d55b` (commit `fc20d82`), written up in `reports/model_results.md`. The connection figures come from `reports/connection_backtest.json`, run at commit `4e6d697`. Brackets are 95% intervals from resampling days. "T-60" means a forecast made 60 minutes before the scheduled arrival.
+All tests run on routes held out of training. Test block: 2026-10-10 to 2026-10-16. Intervals are 95% bootstrap CIs over service dates. GOAL.md defines each test.
 
-**How close is the arrival range?** MAE is the average miss of the most likely arrival time, in minutes. The baseline is the best of three simple methods for that route and horizon (the timetable, the last known lateness carried forward, or the historical average), picked on validation days. Coverage is the share of trains that landed inside the 80% range, which should be about 0.80.
+| GOAL test | Result | Key numbers | Evidence |
+|---|---|---|---|
+| 1 Breadth | Met | 25 routes, 11 operators, 5 hubs, short, medium and long; 7 held-out routes | `config/routes.yaml`, `reports/stage1_coverage.csv` |
+| 2 Accuracy | Met | MAE 2.22 (15 min) and 3.67 (60 min) against persistence 2.41 and 3.82 and historical 4.03; all paired CIs below zero | `reports/network_model/stage4/test_results.json`, run 905346cb (retrained clean as 1e197857) |
+| 3 Ranges | Met on the second scoring | 80% coverage 0.803 overall [0.788, 0.817], worst route 0.791 (per-route ACI). Static CQR scored first and left bhm-liv at 0.58 | `reports/network_model/stage4b/second_scoring_results.json`, run 1e197857 |
+| 4 Late risk | Met | Brier 0.021 and 0.040 against historical 0.051; ECE 0.013 and 0.012 | same file; calibration run c0a08ab4 |
+| 5 Connections | Met after a label fix | Beats the gap-bucket baseline at BHM, MAN and BRI, all horizons, CIs below zero; ECE at most 0.029 | `reports/connections/stage5/test_relabel_comparison.md`, run cd4ac6e9 |
+| 6a Out of time | Met | 11 of 13 metrics within the test CIs, the other 2 better than expected | `reports/serving/oot_table_6a.md` |
+| 6b Live pipeline | Not met | The laptop capture lost data while the Mac slept; 54% to 80% of messages missing per day | `reports/capture_loss/` |
+| 7 Data quality | Met with caveats | The same checks run on every route; no route-specific code | `reports/stage1_cleaning.csv` |
+| 8 Trust | Not yet audited | No full audit of on-screen numbers done | |
+| 9 Reliability | Met | p95 51 ms at 200 requests a second; capacity about 400 a second on one Mac; restart recovery 1.3 s; visible stale flag | `reports/serving/loadtest_w4/SUMMARY.md`, `recovery_after_sigkill.json` |
 
-| Route | Forecast | Model MAE | Best simple baseline MAE | Difference | 80% range coverage |
-|---|---|---|---|---|---|
-| Birmingham to Euston | T-120 | 6.27 | 6.94 (historical) | -0.67 (-1.69 to +0.10), not clear | 0.81 |
-| Birmingham to Euston | T-60 | 5.44 | 6.56 (last lateness) | -1.13 (-1.60 to -0.43) | 0.81 |
-| Birmingham to Euston | T-15 | 3.54 | 4.13 (last lateness) | -0.59 (-0.94 to -0.21) | 0.84 |
-| Aston to Birmingham | T-120 | 2.30 | 2.31 (historical) | -0.01 (-0.08 to +0.07), no gain | 0.83 |
-| Aston to Birmingham | T-60 | 2.30 | 2.31 (historical) | 0.00 (-0.07 to +0.03), no gain | 0.79 |
-| Aston to Birmingham | T-15 | 1.93 | 2.19 (last lateness) | -0.26 (-0.37 to -0.15) | 0.80 |
+Test 5 also beats a logistic-regression option on validation (Brier 0.043 against 0.059) and on the out-of-time week at BHM and MAN. At BRI the interval includes zero. A February 2026 winter stress run is reported on its own: adaptive coverage 0.801, worst route 0.797 (`reports/network_model/stage4b/second_scoring_results.json`).
 
-**How good are the late-train probabilities?** This is the Brier score for "at least 15 minutes late" (lower is better) against the historical frequency for the same route and hour.
+## How it was evaluated
 
-| Route | Share of test trains 15+ late | Forecast | Model Brier | Baseline Brier | Model ECE | Baseline ECE |
-|---|---|---|---|---|---|---|
-| Birmingham to Euston | 17.7% | T-120 | 0.141 | 0.146 | 0.083 | 0.047 |
-| Birmingham to Euston | 17.7% | T-60 | 0.132 | 0.146 | 0.077 | 0.047 |
-| Birmingham to Euston | 17.7% | T-15 | 0.090 | 0.146 | 0.049 | 0.049 |
-| Aston to Birmingham | 0.3% | all three | 0.0034 | 0.0035 | 0.003 to 0.009 | 0.010 |
-
-The Birmingham to Euston Brier gain is clearest at T-15. At T-120 and T-60 the probabilities are less well calibrated than the historical frequency (higher ECE). On the short Aston leg a train is almost never 15 minutes late, so there is nothing to forecast and the model matches the baseline.
-
-**Do you make the connection?** 748 test pairs of an Aston train and a Euston train that leaves 10 to 30 minutes after it is due at New Street. The baseline is the historical miss rate for the same scheduled gap, fitted on training days only. At T-15 many Aston trains had already arrived, so their delay is simply known; the honest comparison keeps only the 300 pairs whose train had not arrived when the forecast was made.
-
-| Forecast | Pairs | Miss rate | Predicted | Model Brier | Baseline Brier | Model ECE | Baseline ECE |
-|---|---|---|---|---|---|---|---|
-| 60 minutes before the Euston train | 748 | 6.0% | 7.9% | 0.0525 (0.0395 to 0.0687) | 0.0528 (0.0382 to 0.0706) | 0.0235 | 0.0248 |
-| 15 minutes before, Aston train not yet arrived | 300 | 15.0% | 21.3% | 0.1012 (0.0734 to 0.1422) | 0.1304 (0.0956 to 0.1819) | 0.0813 | 0.0675 |
-
-The 80% arrival range at Euston covered 0.874 (0.823 to 0.920) of the pairs that reached Euston at T-60, which is above the 0.80 it aims for, so the range is wider than it needs to be. The alert fires at a P(miss) of 0.22. That level comes from assumed costs of 1 for a needless warning and 5 for a missed one, so it is a placeholder for product input. On test it caught 58% of missed connections with 26% of alerts correct, and cost 0.224 per pair against 0.940 for always alerting and 0.301 for never alerting.
-
-## Live evaluation
-
-The frozen champion (MLflow run `4c88d55b`, registry version 2) was replayed on service dates 2026-10-16 to 2026-10-22 of captured Darwin data. The service did not log predictions that week, so each prediction was rebuilt afterwards from only the Darwin messages stamped at or before the prediction time, through the API's own feature and prediction code. Nothing was retrained, recalibrated or re-thresholded. Details and every number are in `reports/live_eval.md` and `reports/live_eval.json` (`uv run rail-risk live-eval --start 2026-10-16 --end 2026-10-22 --expect-run-id 4c88d55bbbed49018e3ce05e8199ce5b`).
-
-- **The capture lost 88.1 of the 168 hours** in 78 gaps of more than 5 minutes, 74 of them 20 minutes or longer. Services whose window from prediction time to arrival overlaps a gap were dropped: at T-120, 301 of 363 Birmingham to Euston and 464 of 561 Aston to Birmingham services. That leaves 119 scored services at T-120, 143 at T-60 and 234 at T-15, and 46% to 85% of them fall on 2026-10-16, the day with the fewest gaps.
-- **Darwin and HSP agree on the actual times.** On 2026-10-16, 118 of 118 destination arrivals recorded by both feeds were identical to the minute. HSP also had 26 arrivals that the capture missed.
-- **Where the live numbers can be compared, they are similar to the test block, not better.** Only cells with five or more service dates get an interval, and in those the live and test intervals overlap, except two. The Birmingham to Euston 80% range was wider at T-15 (17.6 minutes against 11.7), and the P(miss) ECE at T-15 for Aston trains not yet arrived was 0.174 against 0.081.
-
-| Route | Forecast | Live MAE | Test MAE | Live minus validation bar | Live 80% coverage |
-|---|---|---|---|---|---|
-| Birmingham to Euston | T-60 | 5.38 (4.14 to 6.46) | 5.44 | -0.34 (-1.45 to +0.55) | 0.79 |
-| Birmingham to Euston | T-15 | 3.91 (2.77 to 5.49) | 3.54 | -0.08 (-0.51 to +1.46) | 0.82 |
-| Aston to Birmingham | T-15 | 2.34 (1.67 to 2.68) | 1.93 | -0.47 (-0.64 to -0.08) | 0.78 |
-
-For connections, 190 of 533 feasible pairs had a known outcome. At T-60 (71 pairs) the model's P(miss) Brier was 0.1106 against 0.1115 for the gap-bucket baseline, and at T-15 with the Aston train not yet arrived (52 pairs) 0.2228 against 0.2340. The alert at 0.22 had precision 0.36 and recall 0.50 at T-60, and 0.35 and 0.50 at T-15. These are few pairs from few days, so none of this shows that the model is better or worse than on the test block. The other cells have too few service dates for an interval and are listed in the report with the direction of the difference only.
-
-## Stress test
-
-The same frozen champion was scored on a gap-free week of its own routes (HSP, 2026-10-16 to 2026-10-22) and on five Birmingham New Street routes it had never seen (Manchester Piccadilly, Leeds, Bristol Temple Meads, Liverpool Lime Street and Glasgow Central, 2026-10-01 to 2026-10-22). Nothing was retrained or recalibrated. Every number, with 95% intervals that resample service dates, is in `reports/stress_eval.md` and `reports/stress_eval.json` (`uv run rail-risk stress-eval`).
-
-- **Own routes, gap-free week.** At 15 minutes to arrival the champion's MAE was 3.52 minutes on Birmingham to Euston and 1.79 on Aston to Birmingham, with 80% coverage of 0.84 and 0.79. The live replay of the same dates had higher MAE in all six route and horizon cells.
-- **New routes.** The champion beat the historical route-hour baseline in 14 of 15 route and horizon cells, but was worse than persistence at 15 and 60 minutes on Bristol and Glasgow (for example +0.97 minutes at 15 minutes on Bristol, interval +0.54 to +1.37). Pooled 80% coverage ranged from 0.56 on Liverpool to 0.81 on Manchester.
-- **Cold start.** New route rows with fewer than 7 prior fetched days were covered 0.65 of the time, against 0.76 with 7 or more. These are different days, so this is a pattern and not a controlled comparison.
-
-The report ends with ranked changes to consider. None is implemented.
-
-## What did not work
-
-- **A Delay Repay alert.** I first built a forecast alert for "you may be owed Delay Repay". On test it cost more than alerting everyone (0.814 per pair against 0.783) because the share of journeys 15 or more minutes late jumped from 13.4% in validation to 21.7% in test. Eligibility is known for certain once the train arrives, so I removed the alert. Expected Delay Repay in pounds stays as information only.
-- **The 60-minute connection forecast.** Its Brier score, 0.0525, is no better than the gap-bucket baseline, 0.0528. At 60 minutes the model knows little that the timetable gap does not.
-- **The 15-minute gain.** On all 748 pairs the model looked clearly better (Brier 0.0406 against 0.0528), but 448 of those pairs had already arrived. On the 300 that had not, the gain is smaller, the intervals overlap, and the model is less well calibrated than the baseline.
-- **Calibration, only partly fixed.** The simulated P(miss) is too high. Rounding delays to whole minutes, as the data is, cut the validation overestimate from 9.7% to 8.3% against 6.7% realised. Platt scaling and isotonic regression were then tried on validation days and both lost to leaving the probability alone on held-out log loss (0.2656 unchanged, 0.2676 Platt, 0.2752 isotonic), so no recalibration is applied and the over-prediction remains.
-- **Live data drift.** The latest drift check (`reports/drift.json`, 184 live services) flags five features. Most of that is a short live window, and the missing operator code is explained below.
-
-## Limitations
-
-- Live capture is stopped for good. GOAL test 6b (our own capture on an always-on host with under 1% loss) was not run and does not pass. The only measurement of the laptop capture, against the archive for 2026-10-17 to 2026-10-23, showed 54% to 80% of messages missing per day (reports/capture_loss/). History comes only from the community archive; HSP is used for spot checks.
-- Two routes only. Birmingham to Manchester has been downloaded (more than 150 complete days) but is not modelled.
-- Data runs from April to October 2026, so there is no winter, leaf-fall or storm season, and the test block is only 7 days, so intervals are wide.
-- The 10 minute change time at New Street is an assumption. National Rail's page did not give one. The page and API state it as assumed, and the connection tab shows how the answer moves at 5, 7, 10 and 15 minutes.
-- The Aston train and the Euston train are treated as independent. Shared causes such as a signal failure are not modelled.
-- The Euston train's delay is drawn from past trains at the same hour, not from how it is running today.
-- One fix was first spotted on test data. The whole-minute rounding was diagnosed after the first backtest printed validation and test results together, using pooled validation and test pairs. It has no fitted parameter, and its effect on validation pairs is reported above, but test pairs did inform the decision.
-- The alert costs are assumed, as above.
-- Operator codes are missing for 39% of live services in the latest drift check (`reports/drift.json`). All of them are services that were already scheduled when the Darwin capture began on 2026-10-15 at 10:31 UTC, so no schedule message for them exists in the raw data: 55% of services dated 2026-10-15 have no operator, and 0% of those dated 2026-10-16. The page shows "operator unknown" and no Delay Repay amount for them. Darwin's snapshot product could supply those schedules, but it would not help for anything captured since.
-- The Delay Repay rules for West Midlands Railway are recorded from a manual reading of its page, because the automatic fetch was refused, and the code is shared with London Northwestern Railway, whose rules are not recorded, so no payout is priced for it.
+Routes are split by group. Seven routes (lst-cbg, myb-bmo, bhm-liv, man-shf, glq-abd, bri-cdf, bri-wsm) are never used to train, tune or calibrate. Dates are split in time: train 2025-12-01 to 2026-09-23, validation 2026-09-25 to 2026-10-08, test 2026-10-10 to 2026-10-16. The most recent archive week, 2026-10-17 to 2026-10-23, is kept out of everything and replayed through the service once. February 2026 is scored once and never tuned on. Differences against baselines are paired bootstrap intervals over service dates. Each test block was scored once; the one exception is the second scoring in test 3, recorded in DECISIONS.md.
 
 ## How it works
 
-Two data sources feed one feature code path. The Historical Service Performance (HSP) record of past journeys is downloaded once and trains the model. Darwin, the live push feed of train movements, is captured continuously and gives the live state of each running train. Spark builds the same point-in-time features from either source, using only what was known at the forecast time, with tests that fail if anything from the future leaks in. LightGBM quantile models predict a range of delays, and conformal calibration widens it per route, forecast distance and how late the train already is, so that about 80% of trains land inside. A second model gives band probabilities, which become the chances of being 15, 30 and 60 minutes late. For connections, a Monte Carlo simulation draws the inbound delay from the model and the outbound delays from history, then counts how often the change is missed and which train the passenger then catches. Runs are tracked in MLflow, the model is loaded by the alias `champion`, and FastAPI and Streamlit serve it. It runs in Docker, and a plan-only Terraform description of an AWS deployment is in `infra/` (it has never been applied; there is no AWS account).
+History comes from the community Darwin archive. DuckDB builds point-in-time snapshots from Parquet at 5 to 120 minutes before arrival, using only messages stamped before the forecast time; leakage tests rerun snapshots on real data. LightGBM predicts a residual over shrunk persistence. Conformal quantile regression sets the ranges, and adaptive conformal inference (ACI) updates them per route as outcomes arrive. An isotonic-calibrated classifier gives P(late). Connections use a LightGBM classifier with a physical estimate from the arrival quantiles as its main feature. MLflow tracks runs and the `champion` alias selects the model. FastAPI serves it from a SQLite state store, in Docker. A freshness guard flags silent feeds and blends toward the gap-bucket baseline. GitHub Actions runs tests and lint. Spark builds features only for the older two-route model and the original API wiring; the network model, the connection model and the replay service use DuckDB.
+
+## Limitations
+
+- Incidents that start after the prediction cannot be foreseen. On the 18 services that ran 45 minutes or more late in one incident, coverage was 0.44.
+- At 60 minutes the model only ties a route-history persistence baseline (difference -0.016 [-0.094, +0.058]).
+- On the one real outage in the archive, the stale-data guard scored worse than no guard on raw labels (Brier 0.0861 against 0.0379). Many of those labels are "miss" only because the archive lacks the arrival.
+- P(miss) calibration drifted out of time (ECE up to 0.035) but stayed under 0.05.
+- It does not foresee a late outbound train saving a connection.
+- Only three hubs were tested for connections.
+- Live capture is not proven (test 6b). Anything I say about live loss comes from the archive comparison above.
+
+## In progress
+
+I am capturing live train position from the Network Rail Train Describer feed. No result is claimed yet.
+
+## Run it
+
+You need Python 3.12, [uv](https://docs.astral.sh/uv/) and Java 17 (`brew install openjdk@17` on a Mac).
 
 ```
-HSP history ----> Spark features ----> LightGBM quantiles + conformal ranges ----> MLflow registry
-                       ^                       |                                         |
-Darwin live feed ------+                       v                                         v
-                                   connection simulation (Monte Carlo)          FastAPI service ---> Streamlit page
-                                                                                      |
-                                                                          Docker compose, Terraform plan
-```
-
-## How to run it
-
-You need Python 3.12 with [uv](https://docs.astral.sh/uv/), and Java 17 for Spark. On a Mac, `brew install openjdk@17` is enough because the code finds it. On Linux, set `JAVA_HOME` to a Java 17 install. Docker (Colima works) is only needed for the container steps. For live data you also need a free Rail Data Marketplace account.
-
-Set up and test. This needs no data and no keys, and takes about 2.5 minutes. One test is skipped because it needs real data, which is expected:
-
-```
-git clone https://github.com/GaganaGowda06/connection-risk-engine.git
-cd connection-risk-engine
 uv sync
 cp .env.example .env
 uv run pytest
 uv run rail-risk check
-```
-
-`check` prints `darwin_credentials_set=False hsp_key_set=False` until you fill in `.env`. That is expected. The four values to fill in are `RAIL_RDM_HSP_KEY`, `RAIL_RDM_DARWIN_USER`, `RAIL_RDM_DARWIN_PASSWORD` and `RAIL_RDM_DARWIN_GROUP`, from your RDM subscriptions. Never commit `.env`; the commit hooks block it.
-
-Try the API with no keys and no real data. This builds a small synthetic store and serves it. There are no live trains in it, so `/health` reports `degraded` with no live data, which shows the service and the model loading:
-
-```
 uv run python scripts/make_fixture_store.py /tmp/rail-demo
 RAIL_DATA_DIR=/tmp/rail-demo/data RAIL_MLFLOW_DIR=/tmp/rail-demo/mlruns uv run rail-risk serve
 curl -s localhost:8000/health
 ```
 
-The real thing needs data first. Commands that need it say so and stop if it is missing. In order:
+Stop anything already listening on port 8000 first (for example a running `docker compose` serve container), or add `--port 8011` to `serve` and the `curl`. The demo store is synthetic, so `/health` reports `degraded`. Real runs need your own RDM keys and data: `rail-risk evaluate-baselines`, `train-network`, `evaluate-network --run-id RUN`, `backtest-connections`, and `docker compose up --build api ui`. The compose pair serves the older two-route champion (run 4c88d55b) on ports 8000 and 8501; its `/health` reports `degraded` while the Darwin capture is stale, which it is now. The per-stage scripts are in `scripts/` (for example `stage4_calibrate.py`, `stage4_score_test.py` and `stage5_build.py`), and PLAN.md and DECISIONS.md record the order and the run ids.
 
-```
-nohup ./scripts/run_capture.sh > /dev/null 2>&1 &              # Darwin capture; keep it running
-nohup ./scripts/run_backfill.sh 2026-04-15 > /dev/null 2>&1 &  # HSP history; about 200 s per route-day
-uv run rail-risk status                                         # progress of both
-uv run rail-risk build-features                                 # needs the backfill
-uv run rail-risk train                                          # a reportable run needs a clean git tree
-uv run rail-risk promote --run-id RUN_ID                        # moves the champion alias
-uv run rail-risk backtest-connections                           # connection scores and alert level
-uv run rail-risk drift
-```
+## Data and licences
 
-Serving, with the data and a promoted model in place:
+- Darwin Push Port under the RDM Open licence. Darwin may not be resold unmodified, so commercial users should check that condition.
+- Historical archive: the community Darwin archive at ilovetrains.co.uk, credited here. It states no terms of its own.
+- Powered by National Rail Enquiries, for the RDG timetable feed (minimum connection times).
+- Station codes: NaPTAN (Open Government Licence) joined to the davwheat/uk-railway-stations list (ODbL).
+- Network Rail open data (Train Describer): I have not read its licence text yet.
+- No raw rail data is committed. Code is under the MIT licence.
 
-```
-uv run rail-risk serve        # API on localhost:8000
-uv run rail-risk ui           # page on localhost:8501
-docker compose up --build api ui   # the same in containers; mounts data/ and mlruns/ read-only
-curl -s localhost:8000/inbound
-```
+## Delay Repay
 
-The API reads the Darwin capture as it is written, and its background refresher parses each hour as it closes. In the container the data is read-only, so it reads the raw files directly instead. `rail-risk status` and `/health` flag it when parsing falls more than 2 hours behind.
-
-The Terraform in `infra/` is plan-only. The commands are in `infra/README.md`.
-
-## Data licences and sources
-
-- Darwin Real Time Train Information and the Historical Service Performance (HSP) service metrics and details API, both obtained through the Rail Data Marketplace (RDM). Their licence terms are below.
-- Archive history: the community Darwin Push Port archive at https://ilovetrains.co.uk/darwin-push-port, which says it collects the RDM Push Port product. The archive states no terms of its own, so the data is used under the RDM Open licence below, and the archive is credited here. Station codes: NaPTAN (DfT, Open Government Licence) joined to davwheat/uk-railway-stations (ODbL 1.0).
-- Minimum connection times: the RDG timetable feed (MSN and TSI files), from the National Rail Data Portal under the NRE Developer Terms and Conditions (based on the Open Government Licence v2.0). Powered by National Rail Enquiries (https://www.nationalrail.co.uk). Access is personal: the feed itself is not redistributed in this repository, only the manifest data/manifests/dtd.csv. The terms as accepted could not be re-read from the public web, see DECISIONS.md.
-- Avanti West Coast Delay Repay page, https://www.avantiwestcoast.co.uk/help-and-support/delay-repay, last updated 2026-07-21 and checked 2026-10-15.
-- West Midlands Railway Delay Repay page, https://www.westmidlandsrailway.co.uk/delay-repay, checked 2026-10-15 (manual reading, see above).
-- England and Wales bank holidays from gov.uk (`config/bank_holidays.json`).
-
-### Data licences
-
-Both rail data products are under the RDM "Open" licence, as read on their RDM product pages on 2026-10-16. It is free and global. Raw data may be made freely available or distributed to third parties, and subscribers may retain the data they receive. The term is 1 year, renewing automatically, with 1 week of notice.
-
-Darwin Real Time Train Information carries one special condition. The data may not be resold "as is" or in substantially unmodified form, and commercial use is permitted only where the data has been materially augmented, integrated with other data sets or otherwise enhanced. This project combines Darwin with HSP history, builds model features from it and adds forecasts, but anyone using it commercially should check that they meet that condition themselves.
-
-This repository commits no raw rail data. The `data/` folder is git-ignored. To run the pipeline you need your own RDM subscription and keys, as described in the setup above.
-
-The code is under the MIT licence (`LICENSE`). Design decisions and corrections are logged in `DECISIONS.md`.
+`src/rail_risk/repay.py` reads `config/delay_repay.yaml` and prices a payout as a share of the ticket price you enter, by minutes late at the final destination. Avanti West Coast and West Midlands Railway are verified. Both were read from the operator's own page on 2026-10-15, the West Midlands one by hand. London Northwestern shares West Midlands' operator code and is never priced. An unverified operator raises an error rather than a number.

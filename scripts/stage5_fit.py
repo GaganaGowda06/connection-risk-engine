@@ -6,6 +6,7 @@ pairs only. The option comes from the validation comparison (reports/connections
     uv run python scripts/stage5_fit.py
 """
 
+import argparse
 import json
 from pathlib import Path
 
@@ -45,6 +46,7 @@ def log_cells(prefix, cells):
 
 
 def main() -> None:
+    argparse.ArgumentParser(description=__doc__.split("\n\n")[0]).parse_args()
     head, dirty = git_state()
     cfg = B.load_config()
     pick = json.loads((OUT / "options_validation.json").read_text())["summary"]["pick"]
