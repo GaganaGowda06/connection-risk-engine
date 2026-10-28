@@ -1,0 +1,48 @@
+{
+ "day": "2026-10-27",
+ "files": 17,
+ "minutes_spanned": 993,
+ "minutes_with_zero_td_messages": 432,
+ "zero_minute_share": 0.4350453172205438,
+ "messages_by_kind": {
+  "CA_MSG": 1161718,
+  "SF_MSG": 3173156,
+  "CB_MSG": 89953,
+  "CT_MSG": 87791,
+  "CC_MSG": 170301,
+  "SG_MSG": 15376,
+  "SH_MSG": 937
+ },
+ "c_steps": 1161718,
+ "discontinuous_steps": 106065,
+ "discontinuity_share": 0.09130012619241502,
+ "interposes": 170301,
+ "timestamps_corrected_share": 0.0,
+ "worst_areas_by_discontinuity": [
+  [
+   "WI",
+   5485,
+   38124
+  ],
+  [
+   "C1",
+   3300,
+   9094
+  ],
+  [
+   "PX",
+   3175,
+   13467
+  ],
+  [
+   "NM",
+   3021,
+   6399
+  ],
+  [
+   "M3",
+   2733,
+   9273
+  ]
+ ]
+}
