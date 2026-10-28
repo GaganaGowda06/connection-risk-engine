@@ -1205,7 +1205,7 @@ def run_live_eval(
     persistence, historical, split, n_train = fit_baselines(settings, split_file, bands)
     ref = load_test_reference(
         mlruns / "artifacts" / (expect_run_id or svc.model_run_id) / "artifacts" / "model",
-        Path("reports/connection_backtest.json"),
+        Path("reports/legacy/connection_backtest.json"),
     )
     scored = rows[rows["delay_min"].notna()]
     singles: dict[str, Any] = {}
@@ -1560,7 +1560,8 @@ def render_markdown(r: dict[str, Any]) -> str:
     out.append(
         "MAE is in minutes against the actual arrival delay. The validation bar is the baseline "
         "with the lowest MAE on the validation block of the champion run, the same bar used in "
-        "reports/model_results.md. Paired differences are the model's MAE minus the baseline's, "
+        "reports/legacy/model_results.md. Paired differences are the model's MAE minus the "
+        "baseline's, "
         "so a negative number favours the model. Intervals are 95% bootstrap intervals over "
         "service dates; with fewer than five dates no interval is given, because resampling so "
         "few dates says nothing. The window holds at most seven service dates, and on the days "
@@ -1793,7 +1794,8 @@ def render_markdown(r: dict[str, Any]) -> str:
     out += ["", "## Live against the test block", ""]
     out.append(
         "Each live number next to the test-block number of the same champion run, from "
-        "reports/model_results.md and the run's results.json. 'Similar' means the 95% intervals "
+        "reports/legacy/model_results.md and the run's results.json. 'Similar' means the 95% "
+        "intervals "
         "overlap, which with seven or fewer dates in each block says only that the data cannot "
         "separate them. 'Better' and 'worse' mean the intervals do not overlap. For coverage the "
         "labels are about distance from the nominal 80%."

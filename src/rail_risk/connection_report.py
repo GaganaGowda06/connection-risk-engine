@@ -1,4 +1,4 @@
-"""The connections section of reports/model_results.md, written from the backtest result.
+"""The connections section of reports/legacy/model_results.md, written from the backtest result.
 
 Every number in the prose comes from the result dictionary, so the page cannot drift from the
 run. The section sits between two marker comments so a rerun replaces it in place.

@@ -749,7 +749,15 @@ def _evaluate_baselines(args: argparse.Namespace) -> int:
         return 1
     for route in routes:  # each route is scored against baselines fitted on its own training days
         result = evaluate(snaps[snaps["route_id"] == route], split, bands, cfg)
-        write_reports(result, args.out / route)
+        write_reports(
+            result,
+            (
+                args.out
+                if args.out != Path("reports/baselines")
+                else Path("reports/legacy/baselines")
+            )
+            / route,
+        )
     log.info(
         "baselines_scored",
         routes=routes,
@@ -853,7 +861,7 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--config", type=Path, default=Path("config/train.yaml"))
     tr.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     tr.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
-    tr.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
+    tr.add_argument("--report", type=Path, default=Path("reports/legacy/model_results.md"))
     ev = sub.add_parser(
         "evaluate-baselines",
         help="Stage 2: network snapshots and baselines scored on the test block "
@@ -904,7 +912,7 @@ def main(argv: list[str] | None = None) -> int:
         "--minutes", type=int, default=60, help="features built this long before arrival"
     )
     dr.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
-    dr.add_argument("--out", type=Path, default=Path("reports"))
+    dr.add_argument("--out", type=Path, default=Path("reports/legacy"))
     ui = sub.add_parser("ui", help="run the Streamlit page on localhost (needs `serve`)")
     ui.add_argument("--port", type=int, default=8501)
     ui.add_argument("--host", default="127.0.0.1")
@@ -915,14 +923,14 @@ def main(argv: list[str] | None = None) -> int:
     bt = sub.add_parser("backtest-connections", help="score connection predictions on history")
     bt.add_argument("--window", type=float, default=20.0, help="minutes beyond the minimum time")
     bt.add_argument("--draws", type=int, default=2000)
-    bt.add_argument("--out", type=Path, default=Path("reports/connection_backtest.json"))
+    bt.add_argument("--out", type=Path, default=Path("reports/legacy/connection_backtest.json"))
     bt.add_argument("--config", type=Path, default=Path("config/train.yaml"))
     bt.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
     bt.add_argument("--bands-file", type=Path, default=Path("config/delay_bands.yaml"))
     bt.add_argument("--stations-file", type=Path, default=Path("config/stations.yaml"))
     bt.add_argument("--rules-file", type=Path, default=Path("config/delay_repay.yaml"))
     bt.add_argument("--alerts-file", type=Path, default=Path("config/alerts.yaml"))
-    bt.add_argument("--report", type=Path, default=Path("reports/model_results.md"))
+    bt.add_argument("--report", type=Path, default=Path("reports/legacy/model_results.md"))
     bt.add_argument("--pmiss-file", type=Path, default=Path("config/pmiss_calibration.json"))
     le = sub.add_parser(
         "live-eval", help="point-in-time replay of the frozen champion on captured Darwin data"
@@ -936,13 +944,13 @@ def main(argv: list[str] | None = None) -> int:
     le.add_argument("--hsp-check-date", type=date.fromisoformat, default=None)
     le.add_argument("--lookback", type=int, default=60, help="minutes before T for the check")
     le.add_argument("--split-file", type=Path, default=Path("config/split.yaml"))
-    le.add_argument("--out", type=Path, default=Path("reports"))
+    le.add_argument("--out", type=Path, default=Path("reports/legacy"))
     se = sub.add_parser(
         "stress-eval", help="score the frozen champion on a gap-free week and unseen routes"
     )
     se.add_argument("--config", type=Path, default=Path("config/stress.yaml"))
     se.add_argument("--skip-build", action="store_true", help="reuse data/stress/snapshots.parquet")
-    se.add_argument("--out", type=Path, default=Path("reports"))
+    se.add_argument("--out", type=Path, default=Path("reports/legacy"))
     sub.add_parser("rebuild-hsp", help="re-parse saved raw HSP details into interim Parquet")
     sub.add_parser("status", help="show HSP backfill and Darwin capture progress")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)

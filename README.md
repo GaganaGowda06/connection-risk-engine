@@ -33,7 +33,7 @@ Routes are split by group. Seven routes (lst-cbg, myb-bmo, bhm-liv, man-shf, glq
 
 ## How it works
 
-History comes from the community Darwin archive. DuckDB builds point-in-time snapshots from Parquet at 5 to 120 minutes before arrival, using only messages stamped before the forecast time; leakage tests rerun snapshots on real data. LightGBM predicts a residual over shrunk persistence. Conformal quantile regression sets the ranges, and adaptive conformal inference (ACI) updates them per route as outcomes arrive. An isotonic-calibrated classifier gives P(late). Connections use a LightGBM classifier with a physical estimate from the arrival quantiles as its main feature. MLflow tracks runs and the `champion` alias selects the model. FastAPI serves it from a SQLite state store, in Docker. A freshness guard flags silent feeds and blends toward the gap-bucket baseline. GitHub Actions runs tests and lint. Spark builds features only for the older two-route model and the original API wiring; the network model, the connection model and the replay service use DuckDB.
+History comes from the community Darwin archive. DuckDB builds point-in-time snapshots from Parquet at 5 to 120 minutes before arrival, using only messages stamped before the forecast time; leakage tests rerun snapshots on real data. LightGBM predicts a residual over shrunk persistence. Conformal quantile regression sets the ranges, and adaptive conformal inference (ACI) updates them per route as outcomes arrive. An isotonic-calibrated classifier gives P(late). Connections use a LightGBM classifier with a physical estimate from the arrival quantiles as its main feature. MLflow tracks runs. The network service does not use the `champion` alias: it names the three frozen runs by id in `src/rail_risk/serving/artifacts.py` and serves a SQLite ledger of scores that the replay engine computed from them. Only the legacy two-route API loads its model by the `champion` alias. FastAPI serves the ledger in Docker. A freshness guard flags silent feeds and blends toward the gap-bucket baseline. GitHub Actions runs tests and lint. Spark builds features only for the older two-route model and the original API wiring; the network model, the connection model and the replay service use DuckDB.
 
 ## Limitations
 
@@ -43,7 +43,7 @@ History comes from the community Darwin archive. DuckDB builds point-in-time sna
 - P(miss) calibration drifted out of time (ECE up to 0.035) but stayed under 0.05.
 - It does not foresee a late outbound train saving a connection.
 - Only three hubs were tested for connections.
-- Live capture is not proven (test 6b). Anything I say about live loss comes from the archive comparison above.
+- Live capture is not proven (test 6b). My laptop capture lost 54% to 80% of messages per day while the Mac slept, and no always-on host was run.
 
 ## In progress
 
@@ -51,33 +51,36 @@ I am capturing live train position from the Network Rail Train Describer feed. N
 
 ## Run it
 
-You need Python 3.12, [uv](https://docs.astral.sh/uv/) and Java 17 (`brew install openjdk@17` on a Mac).
+You need Docker (Colima works). No keys, no data and no Java are needed for this path. From a fresh clone:
 
 ```
-uv sync
-cp .env.example .env
-uv run pytest
-uv run rail-risk check
-uv run python scripts/make_fixture_store.py /tmp/rail-demo
-RAIL_DATA_DIR=/tmp/rail-demo/data RAIL_MLFLOW_DIR=/tmp/rail-demo/mlruns uv run rail-risk serve
-curl -s localhost:8000/health
-```
-
-Stop anything already listening on port 8000 first, or add `--port 8011` to `serve` and the `curl`. The demo store is synthetic, so `/health` reports `degraded`.
-
-The default way to run the project is the Stage 6 network service in Docker. It needs the replay ledger in `data/interim/serve/state_oot`, which is built from your own RDM data by the stage scripts, so it is not in the repository:
-
-```
+git clone https://github.com/GaganaGowda06/connection-risk-engine.git
+cd connection-risk-engine
 docker compose up --build api
 curl -s localhost:8000/health
-curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610176700689"}'
+curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610178700432"}'
 curl -s -X POST localhost:8000/connection -H 'content-type: application/json' -d '{"in_rid":"202610176700683","out_rid":"202610176742156"}'
 docker compose down
 ```
 
-It serves the SQLite replay state with the freshness guard and loads the frozen runs 1e197857 (arrival), c0a08ab4 (calibration) and cd4ac6e9 (P(miss)). `/health` and every response carry those run ids and the `stale` flag. There is no new web page for it. The older two-route stack (Spark API plus the Streamlit page) is under the `legacy` profile: `docker compose --profile legacy up --build legacy-api legacy-ui`, with the API on port 8100 and the page on 8501.
+Stop anything already listening on port 8000 first. This starts the Stage 6 network service, the SQLite-backed FastAPI with `/risk`, `/connection`, `/inbound`, `/health` and the freshness guard. If the real replay ledger (`data/interim/serve/state_oot`, built from your own RDM data by the stage scripts) is missing, it serves the committed sample ledger in `data/sample/`: derived scores for one replay hour (2026-10-17 18:00 to 19:00 UTC), about 2.5 MB, no raw Darwin or Train Describer data. Only services scored in that hour answer. `/health` and every response carry the run ids 1e197857 (arrival), c0a08ab4 (calibration) and cd4ac6e9 (P(miss)) and the `stale` flag. There is no new web page for it.
 
-Real runs need your own RDM keys and data: `rail-risk evaluate-baselines`, `train-network`, `evaluate-network --run-id RUN`, `backtest-connections`. The per-stage scripts are in `scripts/` (for example `stage4_calibrate.py`, `stage4_score_test.py` and `stage5_build.py`), and PLAN.md and DECISIONS.md record the order and the run ids.
+To test the code: `uv sync`, `cp .env.example .env`, `uv run pytest`. Java 17 is needed only for the legacy Spark code and the tests that cover it (`brew install openjdk@17` on a Mac); the network service and its image do not use it.
+
+Rebuilding results needs your own RDM keys and data: `rail-risk evaluate-baselines`, `train-network`, `evaluate-network --run-id RUN`, then the scripts in `scripts/` (for example `stage4_calibrate.py`, `stage4_score_test.py`, `stage5_build.py`, `make_sample_state.py`). PLAN.md and DECISIONS.md record the order and the run ids.
+
+## Legacy
+
+The two-route model that came before the network rebuild is kept, and its reports are in `reports/legacy/`. Its Spark API and Streamlit page run under a compose profile: `docker compose --profile legacy up --build legacy-api legacy-ui`, with the API on port 8100 and the page on 8501. Its model is loaded by the MLflow `champion` alias. Its synthetic demo, which needs Java 17:
+
+```
+uv run rail-risk check
+uv run python scripts/make_fixture_store.py /tmp/rail-demo
+RAIL_DATA_DIR=/tmp/rail-demo/data RAIL_MLFLOW_DIR=/tmp/rail-demo/mlruns uv run rail-risk serve --port 8011
+curl -s localhost:8011/health
+```
+
+The demo store is synthetic, so `/health` reports `degraded`.
 
 ## Data and licences
 

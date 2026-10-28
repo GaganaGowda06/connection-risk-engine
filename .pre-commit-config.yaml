@@ -4,6 +4,7 @@ repos:
     hooks:
       - id: check-added-large-files
         args: [--maxkb=500]
+        exclude: ^data/sample/state_oot/state\.sqlite$  # the one committed sample ledger, under 20 MB
       - id: check-yaml
       - id: check-toml
       - id: detect-private-key

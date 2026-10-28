@@ -670,7 +670,7 @@ def run_stress_eval(
 
 def _live_comparison(cells: dict[str, Any], cfg: StressConfig) -> dict[str, Any]:
     """The gap-free HSP week against the Darwin live replay of the same dates."""
-    path = Path("reports/live_eval.json")
+    path = Path("reports/legacy/live_eval.json")
     if not path.exists():
         return {}
     live = json.loads(path.read_text(encoding="utf-8"))["singles"]

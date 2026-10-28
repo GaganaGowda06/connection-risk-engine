@@ -17,6 +17,6 @@ alerts:
 # tau and tau2 as chosen by `rail-risk backtest-connections` on the validation pairs, with the
 # costs above, from the model of MLflow run 4c88d55bbbed49018e3ce05e8199ce5b (commit fc20d82).
 # They are results, not inputs: rerunning the command recomputes them in
-# reports/connection_backtest.json. Nothing serves these alerts yet.
+# reports/legacy/connection_backtest.json. Nothing serves these alerts yet.
 chosen:
   tau: 0.22   # likely to miss your connection, on P(miss)

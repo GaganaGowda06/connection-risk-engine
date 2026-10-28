@@ -29,7 +29,10 @@ def test_compose_mounts_state_read_only_and_takes_credentials_from_env_file_only
     )
     # the default service is the Stage 6 network service, with no profile
     assert api["build"]["target"] == "serve" and "profiles" not in api
-    assert "--no-replay" in (ROOT / "docker-compose.yml").read_text()
+    assert api["command"] == ["sh", "/app/serve_entry.sh"]
+    entry = (ROOT / "scripts" / "serve_entry.sh").read_text()
+    assert "--no-replay" in entry and "/app/data/sample/state_oot/state.sqlite" in entry
+    assert "./data/sample:/app/data/sample:ro" in api["volumes"]
     assert "./data/interim:/app/data/interim:ro" in api["volumes"]
     # the two-route stack never starts by default
     assert legacy_api["profiles"] == ["legacy"] and legacy_ui["profiles"] == ["legacy"]

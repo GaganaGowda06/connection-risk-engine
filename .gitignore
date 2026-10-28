@@ -8,6 +8,8 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/manifests/
+!data/sample/
+!data/sample/**
 mlruns/
 .DS_Store
 logs/
@@ -19,7 +21,7 @@ infra/*.tfstate.*
 infra/*.tfvars
 infra/*.tfplan
 infra/crash.log
-reports/baselines/*/baselines.json
+reports/legacy/baselines/*/baselines.json
 /capture.log
 reports/stage1_cleaning_by_day.csv
 

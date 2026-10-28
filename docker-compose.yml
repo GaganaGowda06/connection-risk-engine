@@ -1,6 +1,8 @@
 # Local stack. The default service is the Stage 6 network service:
 #   docker compose up --build api            # API on http://127.0.0.1:8000
-# It serves the committed replay state data/interim/serve/state_oot (the oot_week ledger) and loads
+# It serves the replay state data/interim/serve/state_oot (the oot_week ledger) when it exists and
+# otherwise the committed sample ledger in data/sample (one replay hour, see scripts/serve_entry.sh).
+# It loads
 # the frozen runs 1e197857 (arrival model), c0a08ab4 (calibration) and cd4ac6e9 (P(miss)) named in
 # reports/. Set REPLAY_NAME, REPLAY_SPLIT, REPLAY_START, REPLAY_END and SERVE_FLAGS (empty to
 # replay instead of serving an existing ledger) to run another ledger.
@@ -19,16 +21,12 @@ services:
       context: .
       target: serve
     image: rail-risk-serve:latest
-    command: >
-      python -m rail_risk.serving.run --serve --split ${REPLAY_SPLIT:-oot_week}
-      --start ${REPLAY_START:-2026-10-17T00:00} --end ${REPLAY_END:-2026-10-24T04:00}
-      --state /app/data/interim/serve/state_${REPLAY_NAME:-oot}
-      --store-root /app/data/interim/serve/store_${REPLAY_NAME:-oot}
-      --die-after-hours ${REPLAY_DIE:-0} --skip ${REPLAY_SKIP:-}
-      --workers ${SERVE_WORKERS:-4} ${SERVE_FLAGS---no-replay}
+    command: ["sh", "/app/serve_entry.sh"]
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
+      - ./scripts/serve_entry.sh:/app/serve_entry.sh:ro
+      - ./data/sample:/app/data/sample:ro
       - ./data/interim:/app/data/interim:ro
       - ./data/interim/serve:/app/data/interim/serve
       - ./data/ref:/app/data/ref:ro
