@@ -63,7 +63,21 @@ RAIL_DATA_DIR=/tmp/rail-demo/data RAIL_MLFLOW_DIR=/tmp/rail-demo/mlruns uv run r
 curl -s localhost:8000/health
 ```
 
-Stop anything already listening on port 8000 first (for example a running `docker compose` serve container), or add `--port 8011` to `serve` and the `curl`. The demo store is synthetic, so `/health` reports `degraded`. Real runs need your own RDM keys and data: `rail-risk evaluate-baselines`, `train-network`, `evaluate-network --run-id RUN`, `backtest-connections`, and `docker compose up --build api ui`. The compose pair serves the older two-route champion (run 4c88d55b) on ports 8000 and 8501; its `/health` reports `degraded` while the Darwin capture is stale, which it is now. The per-stage scripts are in `scripts/` (for example `stage4_calibrate.py`, `stage4_score_test.py` and `stage5_build.py`), and PLAN.md and DECISIONS.md record the order and the run ids.
+Stop anything already listening on port 8000 first, or add `--port 8011` to `serve` and the `curl`. The demo store is synthetic, so `/health` reports `degraded`.
+
+The default way to run the project is the Stage 6 network service in Docker. It needs the replay ledger in `data/interim/serve/state_oot`, which is built from your own RDM data by the stage scripts, so it is not in the repository:
+
+```
+docker compose up --build api
+curl -s localhost:8000/health
+curl -s -X POST localhost:8000/risk -H 'content-type: application/json' -d '{"rid":"202610176700689"}'
+curl -s -X POST localhost:8000/connection -H 'content-type: application/json' -d '{"in_rid":"202610176700683","out_rid":"202610176742156"}'
+docker compose down
+```
+
+It serves the SQLite replay state with the freshness guard and loads the frozen runs 1e197857 (arrival), c0a08ab4 (calibration) and cd4ac6e9 (P(miss)). `/health` and every response carry those run ids and the `stale` flag. There is no new web page for it. The older two-route stack (Spark API plus the Streamlit page) is under the `legacy` profile: `docker compose --profile legacy up --build legacy-api legacy-ui`, with the API on port 8100 and the page on 8501.
+
+Real runs need your own RDM keys and data: `rail-risk evaluate-baselines`, `train-network`, `evaluate-network --run-id RUN`, `backtest-connections`. The per-stage scripts are in `scripts/` (for example `stage4_calibrate.py`, `stage4_score_test.py` and `stage5_build.py`), and PLAN.md and DECISIONS.md record the order and the run ids.
 
 ## Data and licences
 

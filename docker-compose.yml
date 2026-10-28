@@ -1,43 +1,31 @@
-# Local stack: the risk API, the Streamlit page and an optional Darwin capture.
-#   docker compose up --build api ui        # then http://127.0.0.1:8501
-#   docker compose --profile capture up capture
-# Ports bind to localhost only. data/ and mlruns/ are mounted read-only for api and ui. No secret
-# is in an image or in this file: the capture takes its credentials from .env at run time.
+# Local stack. The default service is the Stage 6 network service:
+#   docker compose up --build api            # API on http://127.0.0.1:8000
+# It serves the committed replay state data/interim/serve/state_oot (the oot_week ledger) and loads
+# the frozen runs 1e197857 (arrival model), c0a08ab4 (calibration) and cd4ac6e9 (P(miss)) named in
+# reports/. Set REPLAY_NAME, REPLAY_SPLIT, REPLAY_START, REPLAY_END and SERVE_FLAGS (empty to
+# replay instead of serving an existing ledger) to run another ledger.
+# The older two-route stack (Spark API and Streamlit page) is under the legacy profile:
+#   docker compose --profile legacy up --build legacy-api legacy-ui     # API :8100, page :8501
+# Ports bind to localhost only. No secret is in an image or in this file: the capture takes its
+# credentials from .env at run time.
 name: connection-risk
 
 services:
   api:
-    build:
-      context: .
-      target: api
-    image: rail-risk-api:latest
-    ports:
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - ./data:/app/data:ro
-      - ./mlruns:/app/mlruns:ro
-    read_only: true
-    tmpfs:
-      # exec is needed: Spark unpacks native libraries (snappy) into /tmp and maps them
-      - /tmp:exec,mode=1777,size=1g
-    restart: unless-stopped
-
-  serve:
-    # Stage 6: the engine and the API in one process. It replays archive hours in message-time
+    # Stage 6 network service (the default): the engine and the API in one process. It replays archive hours in message-time
     # order and answers /risk, /connection, /inbound, /health from the committed state. A killed
     # container restarts by policy and resumes from the last committed hour.
     build:
       context: .
       target: serve
     image: rail-risk-serve:latest
-    profiles: [serve]
     command: >
-      python -m rail_risk.serving.run --serve --split ${REPLAY_SPLIT:-train_pool}
-      --start ${REPLAY_START:-2026-10-01T00:00} --end ${REPLAY_END:-2026-10-05T00:00}
-      --state /app/data/interim/serve/state_${REPLAY_NAME:-validation}
-      --store-root /app/data/interim/serve/store_${REPLAY_NAME:-validation}
+      python -m rail_risk.serving.run --serve --split ${REPLAY_SPLIT:-oot_week}
+      --start ${REPLAY_START:-2026-10-17T00:00} --end ${REPLAY_END:-2026-10-24T04:00}
+      --state /app/data/interim/serve/state_${REPLAY_NAME:-oot}
+      --store-root /app/data/interim/serve/store_${REPLAY_NAME:-oot}
       --die-after-hours ${REPLAY_DIE:-0} --skip ${REPLAY_SKIP:-}
-      --workers ${SERVE_WORKERS:-1} ${SERVE_FLAGS:-}
+      --workers ${SERVE_WORKERS:-4} ${SERVE_FLAGS---no-replay}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -56,17 +44,36 @@ services:
     environment:
       MLFLOW_DISABLE_AGENT_HINT: "1"
 
-  ui:
+
+  legacy-api:
+    build:
+      context: .
+      target: api
+    image: rail-risk-api:latest
+    profiles: [legacy]
+    ports:
+      - "127.0.0.1:8100:8000"
+    volumes:
+      - ./data:/app/data:ro
+      - ./mlruns:/app/mlruns:ro
+    read_only: true
+    tmpfs:
+      # exec is needed: Spark unpacks native libraries (snappy) into /tmp and maps them
+      - /tmp:exec,mode=1777,size=1g
+    restart: unless-stopped
+
+  legacy-ui:
     build:
       context: .
       target: ui
     image: rail-risk-ui:latest
+    profiles: [legacy]
     ports:
       - "127.0.0.1:8501:8501"
     environment:
-      RAIL_API_URL: http://api:8000
+      RAIL_API_URL: http://legacy-api:8000
     depends_on:
-      api:
+      legacy-api:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -77,6 +84,9 @@ services:
     # Do not run this while a host capture is running: two consumers in one group would
     # split the partitions between them.
     profiles: [capture]
+    build:
+      context: .
+      target: api
     image: rail-risk-api:latest
     command: ["python", "scripts/capture_darwin.py"]
     env_file:
