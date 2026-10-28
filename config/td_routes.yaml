@@ -5,4 +5,7 @@
 # lengths, two held-out routes and different lines (WCML, ECML, GWR west, Pennines).
 # Station coverage and rows per station: eus-wfj 1.00/116, bhm-eus 1.00/79, kgx-lds 1.00/95,
 # bri-cdf 1.00/99 (held out), man-shf 1.00/59 (held out).
-td_routes: [eus-wfj, bhm-eus, kgx-lds, bri-cdf, man-shf]
+td_routes: [eus-wfj, bhm-eus, kgx-lds, bri-cdf, man-shf, lst-cbg]
+# lst-cbg (held out, medium, Greater Anglia; SMART station coverage 1.00, 19 rows per station) was added
+# on 2026-10-28 as a sixth route, at my request: it is the route of the 2026-10-10 incident. It was not
+# picked by coverage. Held-out routes are now bri-cdf, man-shf and lst-cbg.

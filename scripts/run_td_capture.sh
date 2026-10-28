@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
-exec caffeinate -ims uv run python scripts/capture_td.py "$@" >> logs/td_capture.log 2>&1
+exec caffeinate -dims uv run python scripts/capture_td.py "$@" >> logs/td_capture.log 2>&1

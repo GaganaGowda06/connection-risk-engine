@@ -15,9 +15,10 @@ matching station (our loss measure; needs the Darwin archive for that day, never
 import argparse
 import json
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
-from rail_risk.td import fix_time, messages
+from rail_risk.td import fix_time, frames, messages
 
 
 def main() -> None:
@@ -25,9 +26,14 @@ def main() -> None:
     ap.add_argument("--day", required=True)
     ap.add_argument("--root", default="data/raw/td")
     ap.add_argument("--out", default="reports/td")
+    ap.add_argument("--since", help="UTC start of clean counting, e.g. 2026-10-28T07:36:28")
+    ap.add_argument("--days", nargs="*", help="extra UTC days to read when --since spans midnight")
     a = ap.parse_args()
-    files = sorted((Path(a.root) / a.day).glob("*.jsonl.gz"))
+    days = [a.day, *(a.days or [])]
+    files = sorted(f for d in days for f in (Path(a.root) / d).glob("*.jsonl.gz"))
     per_min: Counter = Counter()
+    msg_min: Counter = Counter()  # by the message's own timestamp, so late delivery still counts
+    mids: Counter = Counter()
     kinds: Counter = Counter()
     last: dict = {}  # (area, descr) -> berth the train last moved to
     steps = jumps = interposes = fixed = n_time = 0
@@ -38,6 +44,8 @@ def main() -> None:
             if topic != "TD_ALL_SIG_AREA":
                 continue
             per_min[recv // 60000] += 1
+            if "time_ms" in msg:
+                msg_min[msg["time_ms"] // 60000] += 1
             kinds[kind] += 1
             if "time" in msg:
                 n_time += 1
@@ -56,6 +64,10 @@ def main() -> None:
                 last[key] = msg["to"]
             elif kind == "CB_MSG":
                 last.pop(key, None)
+    for fr_file in files:  # duplicate frames (redelivery) by message id
+        for fr in frames(fr_file):
+            if fr.get("m"):
+                mids[fr["m"]] += 1
     if not per_min:
         raise SystemExit(f"no TD messages for {a.day}")
     lo, hi = min(per_min), max(per_min)
@@ -69,6 +81,25 @@ def main() -> None:
             [k, jump_area[k], step_area[k]] for k, _ in jump_area.most_common(5)
         ],
     }  # fmt: skip
+    if a.since:
+        t0 = datetime.fromisoformat(a.since).replace(tzinfo=UTC).timestamp()
+        first = int(-(-t0 // 60))
+        last = max(msg_min) - 1  # the newest minute may still be filling
+        blocks = []
+        for b in range(0, max(1, (last - first + 1) // 1440 + 1)):
+            lo, hi = first + b * 1440, min(first + (b + 1) * 1440 - 1, last)
+            if hi < lo:
+                break
+            empty = [m for m in range(lo, hi + 1) if msg_min[m] == 0]
+            blocks.append({
+                "block_start_utc": datetime.fromtimestamp(lo * 60, UTC).isoformat(timespec="minutes"),
+                "minutes": hi - lo + 1, "empty_minutes_by_message_time": len(empty),
+                "empty_share": len(empty) / (hi - lo + 1), "complete_24h": hi - lo + 1 == 1440,
+                "clean_day": hi - lo + 1 == 1440 and len(empty) / (hi - lo + 1) < 0.01,
+            })  # fmt: skip
+        res["since"] = a.since
+        res["blocks_of_24h_from_restart"] = blocks
+        res["duplicate_message_ids"] = sum(v - 1 for v in mids.values() if v > 1)
     Path(a.out).mkdir(parents=True, exist_ok=True)
     (Path(a.out) / f"loss_{a.day}.json").write_text(json.dumps(res, indent=1))
     print(json.dumps(res, indent=1))
