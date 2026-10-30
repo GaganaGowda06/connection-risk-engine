@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Install the capture LaunchAgent and the 06:15 loss-check timer for this user (no sudo, no
-# system settings). Usage: scripts/install_launchd.sh [capture|loss|all] [--dry-run]
+# system settings). Usage: scripts/install_launchd.sh [capture|td|loss|all] [--dry-run]
 # Starting the capture agent starts a second consumer in the same Kafka group, so stop any
-# running capture first (pkill -INT -f scripts/capture_darwin.py).
+# running capture first (pkill -INT -f scripts/capture_darwin.py). The td agent runs
+# scripts/capture_td.py (Train Describer); stop any running capture_td.py first, since the broker
+# allows one consumer per durable subscription. `all` installs capture and loss, not td.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
@@ -25,5 +27,6 @@ install_one() {
 }
 
 [[ "$WHAT" == capture || "$WHAT" == all ]] && install_one com.railrisk.capture
+[[ "$WHAT" == td ]] && install_one com.railrisk.td-capture
 [[ "$WHAT" == loss || "$WHAT" == all ]] && install_one com.railrisk.capture-loss
 exit 0

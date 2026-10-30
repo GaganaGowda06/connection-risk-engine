@@ -72,6 +72,7 @@ class Operator(BaseModel):
     measured_at: str | None = None
     note: str | None = None
     caveat: str | None = None
+    shared_toc: bool = False  # the TOC code also belongs to an operator whose rules are unverified
     tiers: list[Tier] = []
 
     @model_validator(mode="after")
@@ -104,6 +105,11 @@ class DelayRepayRules(BaseModel):
         op = self.operators.get(toc)
         if op is None:
             raise RepayError(f"no Delay Repay rules for TOC {toc!r}")
+        if op.shared_toc:
+            raise RepayError(
+                f"not priced: rules unverified (TOC {toc!r} is shared with an operator whose "
+                f"Delay Repay rules are unverified, and a TOC code cannot tell them apart)"
+            )
         if op.status != "verified":
             raise RepayError(
                 f"Delay Repay rules for TOC {toc!r} ({op.name}) are unverified, "

@@ -23,6 +23,9 @@ operators:
     status: verified
     source_url: https://www.westmidlandsrailway.co.uk/delay-repay
     checked: 2026-10-15
+    # TOC code LM is also London Northwestern Railway, whose rules are unverified, and a TOC code
+    # cannot tell the two apart. Nothing is priced for LM until the caller knows the operator.
+    shared_toc: true
     claim_window_days: null
     measured_at: >-
       destination arrival against the advertised timetable; a West Midlands Railway delay that

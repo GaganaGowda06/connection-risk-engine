@@ -459,6 +459,11 @@ class RiskService:
                 toc=toc, toc_status="unknown", amount_gbp=None,
                 reason=f"no Delay Repay rules for {toc}",
             )  # fmt: skip
+        if op.shared_toc:
+            return DelayRepayOut(
+                toc=toc, toc_status="unverified", amount_gbp=None,
+                reason="not priced: rules unverified", caveat=op.caveat,
+            )  # fmt: skip
         if op.status != "verified":
             return DelayRepayOut(
                 toc=toc, toc_status="unverified", amount_gbp=None,

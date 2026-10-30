@@ -1,3 +1,4 @@
 epoch,start_utc,end_utc,status,note
 1,2026-10-27T07:20:36,2026-10-28T07:34:26,failed_not_for_model,"Mac slept (lid closed, then on battery) from 2026-10-27 13:26; 519 of 1440 minutes empty in the first 24 h by message time; durable resume could not recover gaps over the broker's 5 minute hold"
-2,2026-10-28T07:36:28,,current,"fixed capture: ack client-individual, gap logger, no forced reconnect, caffeinate -dims; clean days counted from here"
+2,2026-10-28T07:36:28,2026-10-28T14:20:11,failed_session_ended,"stopped by SIGINT or SIGTERM 11 s after the terminal session that started it went idle and closed (started with nohup from that session's shell, so it shared its process group; the sender of the signal is not logged); no sleep or shutdown in pmset; 6.7 h, not a full day"
+3,2026-10-30T07:50:39,,current,"LaunchAgent com.railrisk.td-capture (KeepAlive, RunAtLoad, caffeinate -dims), parent launchd; clean days counted from here"

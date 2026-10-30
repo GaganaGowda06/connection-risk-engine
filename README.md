@@ -20,7 +20,7 @@ All tests run on routes held out of training. Test block: 2026-10-10 to 2026-10-
 | 4 Late risk | Met | Brier 0.021 and 0.040 against historical 0.051; ECE 0.013 and 0.012 | same file; calibration run c0a08ab4 |
 | 5 Connections | Met after a label fix | Beats the gap-bucket baseline at BHM, MAN and BRI, all horizons, CIs below zero; ECE at most 0.029 | `reports/connections/stage5/test_relabel_comparison.md`, run cd4ac6e9 |
 | 6a Out of time | Met | 11 of 13 metrics within the test CIs, the other 2 better than expected | `reports/serving/oot_table_6a.md`, runs 1e197857, c0a08ab4, cd4ac6e9 |
-| 6b Live pipeline | Not met | The laptop capture lost data while the Mac slept; 54% to 80% of messages missing per day | `reports/capture_loss/` |
+| 6b Live pipeline | Not met | The laptop capture lost data while the Mac slept; 54% to 80% of messages missing per day, measured on 17 to 23 October | `reports/capture_loss/` |
 | 7 Data quality | Met with caveats | The same checks run on every route; no route-specific code | `reports/stage1_cleaning.csv` |
 | 8 Trust | Met for the network service and this README | All 41 numeric and time fields in `/health`, `/risk`, `/connection` and `/inbound` name their source in the response (run ids, MCT file and sequence, message clock, guard file); every README result number found in the file it cites; no Delay Repay amount is returned | `tests/test_traceability.py`, `scripts/audit_readme_numbers.py`, `reports/stage7_audit.md`; runs 1e197857, c0a08ab4, cd4ac6e9 |
 | 9 Reliability | Met | p95 51 ms at 200 requests a second; capacity about 400 a second on one Mac; restart recovery 1.3 s; visible stale flag | `reports/serving/loadtest_w4/SUMMARY.md`, `recovery_after_sigkill.json`; same three runs. After the provenance block was added, a host run of the 4-worker service gave p95 13 ms at 200 requests a second with 0 errors (`reports/serving/loadtest_provenance_200rps.json`; a different setup from the Docker run, so not a like-for-like figure) |
@@ -43,7 +43,7 @@ History comes from the community Darwin archive. DuckDB builds point-in-time sna
 - P(miss) calibration drifted out of time (ECE up to 0.035) but stayed under 0.05.
 - It does not foresee a late outbound train saving a connection.
 - Only three hubs were tested for connections.
-- Live capture is not proven (test 6b). My laptop capture lost 54% to 80% of messages per day while the Mac slept, and no always-on host was run.
+- Live capture is not proven (test 6b). My laptop capture lost 54% to 80% of messages per day, measured on 17 to 23 October, while the Mac slept, and no always-on host was run.
 
 ## In progress
 
@@ -93,4 +93,4 @@ The demo store is synthetic, so `/health` reports `degraded`.
 
 ## Delay Repay
 
-The network service does not price Delay Repay and returns no money amounts. Only the legacy two-route API uses `src/rail_risk/repay.py`, which reads `config/delay_repay.yaml` and prices a payout as a share of the ticket price you enter, by minutes late at the final destination. Avanti West Coast and West Midlands Railway are verified. Both were read from the operator's own page on 2026-10-15, the West Midlands one by hand. London Northwestern shares West Midlands' operator code and is never priced. An unverified operator raises an error rather than a number. The rules were last checked on 2026-10-15 and are not re-checked until a service prices from them.
+The network service does not price Delay Repay and returns no money amounts. Only the legacy two-route API uses `src/rail_risk/repay.py`, which reads `config/delay_repay.yaml` and prices a payout as a share of the ticket price you enter, by minutes late at the final destination. Only Avanti West Coast is priced. Its rules were read from the operator's own page on 2026-10-15. West Midlands Railway's rules were also read that day, by hand, but they are not used: TOC code LM is shared with London Northwestern Railway, whose rules are unverified, and a TOC code cannot tell them apart, so LM answers "not priced: rules unverified". An unverified or unknown operator raises an error rather than a number. The rules were last checked on 2026-10-15 and are not re-checked until a service prices from them.

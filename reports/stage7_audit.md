@@ -44,9 +44,8 @@ persistence difference is `stage4/test_results.json`, not the stage 4b file; 0.4
 `stage4b/adaptive_break_it.json`. The check proves a number appears in the cited file at that
 precision, not that the sentence describing it is right.
 
-Open finding: "54% to 80% of messages per day" matches `reports/capture_loss/` for 17 to 23
-October only. The later Darwin files (not yet committed) show 86% on 25 October and 100% on 26 to
-29 October, because the Darwin capture was not running.
+Resolved: "54% to 80% of messages per day" now says it was measured on 17 to 23 October. The later
+Darwin loss files (25 to 29 October) are days with no capture running, not loss, and are not committed.
 
 ## Break tests (`tests/test_traceability.py`)
 

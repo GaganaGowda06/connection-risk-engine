@@ -232,6 +232,16 @@ def test_unverified_or_unknown_operator_gets_no_amount_and_a_reason(
         assert dr["toc_status"] == "unknown" and dr["amount_gbp"] is None
 
 
+def test_shared_toc_lm_is_not_priced_with_the_shipped_rules(tmp_path, features, bundle_pair):
+    # TOC LM is West Midlands Railway and London Northwestern Railway; the second is unverified
+    with client_for(make_service(tmp_path, features, bundle_pair, toc="LM")) as c:
+        dr = post(c, fare=50).json()["delay_repay"]
+        assert dr["amount_gbp"] is None and dr["toc_status"] == "unverified"
+        assert dr["reason"] == "not priced: rules unverified"
+    with client_for(make_service(tmp_path, features, bundle_pair, toc="VT")) as c:
+        assert post(c, fare=50).json()["delay_repay"]["amount_gbp"] is not None
+
+
 def test_missing_schedule_means_unknown_operator_not_a_guess(tmp_path, features, bundle_pair):
     with client_for(make_service(tmp_path, features, bundle_pair, toc=None)) as c:
         body = post(c, fare=50).json()

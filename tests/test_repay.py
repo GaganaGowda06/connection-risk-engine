@@ -124,7 +124,7 @@ def test_shipped_rules_match_what_was_read_from_the_operator_page():
         (120, None, 1.0, 1.0),
     ]
     assert str(vt.checked) == "2026-10-15" and vt.source_url.startswith("https://www.avanti")
-    lm = shipped.operator("LM")
+    lm = shipped.operators["LM"]  # recorded from the page, but not priced (shared TOC code)
     assert [(t.from_min, t.to_min, t.single, t.return_) for t in lm.tiers] == [
         (15, 30, 0.25, 0.125),
         (30, 60, 0.5, 0.25),
@@ -132,8 +132,7 @@ def test_shipped_rules_match_what_was_read_from_the_operator_page():
         (120, None, 1.0, 1.0),
     ]
     assert "London Northwestern" in lm.caveat  # the shared TOC code is flagged on every payout
-    r = expected_repay(P, EDGES, "LM", "single", 10.0, shipped)
-    assert r.caveat == lm.caveat and r.expected_payout > 0
+    assert lm.shared_toc
     assert shipped.operators["LNR"].status == "unverified"
     with pytest.raises(RepayError, match="unverified"):
         shipped.operator("LNR")
@@ -148,3 +147,15 @@ def test_expected_payout_is_linear_in_fare_and_ordered_by_ticket():
     ret = expected_repay(P, EDGES, "VT", "return", 20.0, rules()).expected_payout
     assert ret < a
     assert np.isfinite(ret)
+
+
+def test_shipped_rules_price_avanti_but_never_a_shared_toc_or_an_unverified_operator():
+    shipped = load_rules(ROOT / "delay_repay.yaml")
+    assert expected_repay(P, EDGES, "VT", "single", 10.0, shipped).expected_payout > 0
+    # TOC LM is West Midlands Railway and London Northwestern Railway: nothing is priced for it
+    with pytest.raises(RepayError, match="not priced: rules unverified"):
+        expected_repay(P, EDGES, "LM", "single", 10.0, shipped)
+    with pytest.raises(RepayError, match="unverified"):  # London Northwestern by its own key
+        expected_repay(P, EDGES, "LNR", "single", 10.0, shipped)
+    with pytest.raises(RepayError, match="no Delay Repay rules"):  # an operator never recorded
+        expected_repay(P, EDGES, "XC", "single", 10.0, shipped)
