@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from rail_risk.logging import get_logger
 from rail_risk.serving import artifacts as AR
+from rail_risk.serving import provenance as PV
 from rail_risk.serving.guard import Guard
 from rail_risk.serving.state import SqliteStore
 
@@ -113,6 +114,21 @@ def _ids() -> dict:
             "pmiss_model": AR.PMISS_RUN, "adaptive_gamma": AR.ADAPTIVE_GAMMA}  # fmt: skip
 
 
+def _chk(store: SqliteStore, need_mct: bool = False) -> dict:
+    """The ledger's provenance facts; refuses (503) when its runs differ from the ones this
+    service names, or, for a connection answer, when the MCT source is unknown."""
+    chk = PV.check(PV.read_meta(store.con), PV.mct_from_table())
+    if chk["run_problems"]:
+        raise HTTPException(503, "; ".join(chk["run_problems"]))
+    if need_mct and chk["mct_problem"]:
+        raise HTTPException(503, f"mct_min has no source: {chk['mct_problem']}")
+    return chk
+
+
+def _prov(endpoint: str, chk: dict, meta: dict) -> dict:
+    return PV.block(endpoint, chk, meta.get("data_as_of"), _guard().flag_min)
+
+
 def _clean(v):
     if isinstance(v, (np.floating, float)):
         return None if not np.isfinite(v) else float(v)
@@ -131,7 +147,13 @@ def health() -> dict:
         meta["hours_done"] = store.hours_count()
         meta["ids"] = _ids()
         meta["uptime_s"] = round(time.time() - STARTED, 1)
-        meta["status"] = "degraded" if meta["stale"] else "ok"
+        chk = PV.check(PV.read_meta(store.con), PV.mct_from_table())
+        problems = [*chk["run_problems"], *([chk["mct_problem"]] if chk["mct_problem"] else [])]
+        meta["status"] = "degraded" if meta["stale"] or problems else "ok"
+        meta["problems"] = problems
+        meta["provenance"] = _prov("health", chk, meta)
+        meta["provenance"]["checks"] = {"ledger_runs_match_service": chk["runs_match"],
+                                        "ledger_runs_note": chk["runs_note"]}  # fmt: skip
         return meta
     finally:
         store.close()
@@ -142,6 +164,7 @@ def risk(req: RiskRequest) -> dict:
     t0 = time.perf_counter()
     store = _store()
     try:
+        chk = _chk(store)
         rows = store.risk(req.rid)
         meta = _meta(store)
     finally:
@@ -164,6 +187,7 @@ def risk(req: RiskRequest) -> dict:
         "latest": snaps[-1],
         "freshness": meta,
         "ids": _ids(),
+        "provenance": _prov("risk", chk, meta),
     }
     log.info(
         "risk", rid=req.rid, ms=round((time.perf_counter() - t0) * 1000, 2), stale=meta["stale"]
@@ -176,6 +200,7 @@ def connection(req: ConnectionRequest) -> dict:
     t0 = time.perf_counter()
     store = _store()
     try:
+        chk = _chk(store, need_mct=True)
         rows = store.pair(req.in_rid, req.out_rid)
         meta = _meta(store)
     finally:
@@ -190,7 +215,7 @@ def connection(req: ConnectionRequest) -> dict:
         for r in rows.itertuples()
     ]  # fmt: skip
     out = {"in_rid": req.in_rid, "out_rid": req.out_rid, "snapshots": snaps, "latest": snaps[-1],
-           "freshness": meta, "ids": _ids()}  # fmt: skip
+           "freshness": meta, "ids": _ids(), "provenance": _prov("connection", chk, meta)}  # fmt: skip
     log.info("connection", ms=round((time.perf_counter() - t0) * 1000, 2), stale=meta["stale"])
     return out
 
@@ -205,6 +230,7 @@ def inbound(
     clock; the default is the ledger's clock."""
     store = _store()
     try:
+        chk = _chk(store)
         meta = _meta(store)
         if not meta["data_as_of"]:
             raise HTTPException(503, "no data yet")
@@ -215,13 +241,15 @@ def inbound(
     except sqlite3.OperationalError as e:
         raise HTTPException(503, f"state not ready: {e}") from e
     if rows.empty:
-        return {"hub": hub, "arrivals": [], "freshness": meta, "ids": _ids()}
+        return {"hub": hub, "arrivals": [], "freshness": meta, "ids": _ids(),
+                "provenance": _prov("inbound", chk, meta)}  # fmt: skip
     arr = [
         {"rid": r.in_rid, "planned_arrival": r.plan_arr_in, "connections_scored": int(r.n),
          "latest_p_miss": _clean(r.p_final), "stale": bool(r.stale)}
         for r in rows.itertuples()
     ]  # fmt: skip
-    return {"hub": hub, "arrivals": arr, "freshness": meta, "ids": _ids()}
+    return {"hub": hub, "arrivals": arr, "freshness": meta, "ids": _ids(),
+            "provenance": _prov("inbound", chk, meta)}  # fmt: skip
 
 
 def worker_json(path: Path) -> dict:

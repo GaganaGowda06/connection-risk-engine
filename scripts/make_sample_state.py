@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from rail_risk.serving import provenance as PV
 from rail_risk.serving.state import SqliteStore
 
 
@@ -48,6 +49,12 @@ def main() -> None:
     store.commit_hour(
         str(start), frames, {"clock": clock, "fresh": {"clock": clock, "last_minute": last_minute}}
     )
+    mct = PV.mct_from_table()
+    if not mct or "problem" in mct:
+        raise SystemExit(
+            "data/ref/mct.csv is missing or mixed: the sample must record its MCT file"
+        )
+    store.set_meta("provenance", PV.stamp(mct))
     store.con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     store.con.execute("PRAGMA journal_mode=DELETE")
     store.con.execute("VACUUM")

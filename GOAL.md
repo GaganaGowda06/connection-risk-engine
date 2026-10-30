@@ -41,4 +41,4 @@ Anchoring, passivity, overconfidence on familiar data, reflex apologies, missing
 ## Done means
 Tests 1 to 9 pass, with evidence from real runs and run ids, stated honestly in the README.
 
-Current plan: see PLAN.md, now at Stage 7 (traceability and demo; Stages 1 to 6 closed, tests 6a and 9 met, 6b not claimed)
+Current plan: see PLAN.md, now at Stage 7 (traceability and demo; Stages 1 to 6 closed, tests 6a, 8 and 9 met for the network service, 6b not claimed)

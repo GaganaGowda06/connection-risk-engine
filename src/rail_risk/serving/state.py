@@ -214,6 +214,10 @@ class SqliteStore(StateStore):
                     name = f"ix_{table}_{cols.replace(', ', '_')}"
                     self.con.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({cols})")
 
+    def set_meta(self, k: str, v: dict) -> None:
+        """Record a small JSON fact about the ledger (writer only)."""
+        self.con.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (k, json.dumps(v)))
+
     def load_fresh(self) -> dict | None:
         r = self.con.execute("select v from meta where k='fresh'").fetchone()
         return json.loads(r[0]) if r else None

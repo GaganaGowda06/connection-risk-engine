@@ -18,6 +18,7 @@ import uvicorn
 
 from rail_risk.logging import get_logger
 from rail_risk.serving import engine as E
+from rail_risk.serving import provenance as PV
 from rail_risk.serving import state as S
 from rail_risk.serving.guard import Guard
 
@@ -42,6 +43,15 @@ def replay(args: argparse.Namespace, stop: threading.Event) -> None:
         store, Path(args.source), Path(args.store_root), th, args.split, ssds=ssds, skip=skip,
         guard=guard,
     )  # fmt: skip
+    if hasattr(store, "set_meta"):  # the runs and MCT file behind every number in this ledger
+        old = PV.read_meta(store.con)
+        if old and PV.check(old, None)["run_problems"]:
+            raise SystemExit(
+                "this ledger was scored by other runs: "
+                + "; ".join(PV.check(old, None)["run_problems"])
+            )
+        if not old:
+            store.set_meta("provenance", PV.stamp(PV.mct_from_table()))
     done = {pd.Timestamp(h) for h in store.hours_done()}
     if not done:
         eng.preload(start, ssds)
