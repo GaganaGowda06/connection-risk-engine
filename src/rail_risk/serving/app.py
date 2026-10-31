@@ -167,6 +167,7 @@ def risk(req: RiskRequest) -> dict:
         chk = _chk(store)
         rows = store.risk(req.rid)
         meta = _meta(store)
+        toc = store.service_toc(req.rid, str(meta["data_as_of"])) if not rows.empty else None
     finally:
         store.close()
     if rows.empty:
@@ -179,10 +180,11 @@ def risk(req: RiskRequest) -> dict:
             "point_min": _clean(r.point), "range80_min": [_clean(r.final_lo), _clean(r.final_hi)],
             "p_delay_15": _clean(r.p_late_final), "stale": bool(r.stale),
             "fallback_weight": _clean(getattr(r, "fallback_w", 0.0)),
-            "stale_reason": r.stale_reason or "",
+            "stale_reason": r.stale_reason or "", "sched_arr": r.pt_arr,
         })  # fmt: skip
     out = {
         "rid": req.rid,
+        "toc": toc,
         "snapshots": snaps,
         "latest": snaps[-1],
         "freshness": meta,
@@ -211,7 +213,8 @@ def connection(req: ConnectionRequest) -> dict:
     snaps = [
         {"horizon_min": int(r.horizon_min), "scored_at": r.snap_time, "hub": r.hub,
          "p_miss": _clean(r.p_final), "fallback_weight": _clean(getattr(r, "fallback_w", 0.0)), "slack_min": _clean(r.slack_min), "mct_min": _clean(r.mct_min),
-         "inbound_arrived": bool(not r.nya), "stale": bool(r.stale), "stale_reason": r.stale_reason or ""}
+         "inbound_arrived": bool(not r.nya), "stale": bool(r.stale), "stale_reason": r.stale_reason or "",
+         "sched_arr_in": r.plan_arr_in, "sched_dep_out": r.plan_dep_out, "in_toc": r.in_toc, "out_toc": r.out_toc}
         for r in rows.itertuples()
     ]  # fmt: skip
     out = {"in_rid": req.in_rid, "out_rid": req.out_rid, "snapshots": snaps, "latest": snaps[-1],
@@ -250,6 +253,41 @@ def inbound(
     ]  # fmt: skip
     return {"hub": hub, "arrivals": arr, "freshness": meta, "ids": _ids(),
             "provenance": _prov("inbound", chk, meta)}  # fmt: skip
+
+
+@app.get("/services")
+def services(
+    origin: str | None = Query(None, pattern=r"^[A-Za-z]{3}$"),
+    dest: str | None = Query(None, pattern=r"^[A-Za-z]{3}$"),
+    near: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$"),
+    window_min: int = Query(20, ge=1, le=180),
+    limit: int = Query(10, ge=1, le=50),
+    by: Literal["dep", "arr"] = "dep",
+) -> dict:
+    """Find the rid from what a passenger knows: where from, where to and about when (UTC).
+    `by=dep` matches the scheduled departure from the origin, `by=arr` the scheduled arrival at the
+    destination. Only what the ledger has seen is returned: a time or operator it never saw is
+    null, and a service with no time for the chosen side is not listed."""
+    if not origin and not dest:
+        raise HTTPException(422, "give origin, dest or both (three-letter station codes)")
+    store = _store()
+    try:
+        chk = _chk(store)
+        meta = _meta(store)
+        key = str(meta["data_as_of"])
+        o, d = (origin or "").upper() or None, (dest or "").upper() or None
+        rows = store.services(key, o, d, near.replace(" ", "T"), window_min, by, limit)
+    except sqlite3.OperationalError as e:
+        raise HTTPException(503, f"state not ready: {e}") from e
+    finally:
+        store.close()
+    out = [{"rid": r.rid, "toc": r.toc, "origin": r.origin, "dest": r.dest,
+            "sched_dep": r.sched_dep, "sched_arr": r.sched_arr, "has_risk": bool(r.has_risk)}
+           for r in rows.itertuples()]  # fmt: skip
+    q = {"origin": o, "dest": d, "near": near.replace(" ", "T"), "by": by,
+         "window_min": window_min, "limit": limit}  # fmt: skip
+    return {"query": q, "services": out, "freshness": meta, "ids": _ids(),
+            "provenance": _prov("services", chk, meta)}  # fmt: skip
 
 
 def worker_json(path: Path) -> dict:

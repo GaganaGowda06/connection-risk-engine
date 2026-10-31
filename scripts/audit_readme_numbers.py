@@ -46,7 +46,7 @@ CLAIMS = {
 # README numbers that are not results: dates, run ids, versions, counts read from config, examples
 NOT_RESULTS = (
     "11 13 1 2 3 4 5 6 7 8 9 15 17 18 20 24 25 10 16 23 26 30 45 60 120 12 0 100 000 "
-    "2025 2026 2027 1e197857 c0a08ab4 cd4ac6e9 905346cb 8000 8100 8501 8011 17 90 00 01 08 09 19 49 2.5 41 503 "
+    "2025 2026 2027 1e197857 c0a08ab4 cd4ac6e9 905346cb 8000 8100 8501 8011 17 90 00 01 08 09 19 49 2.5 55 503 "
 )
 
 

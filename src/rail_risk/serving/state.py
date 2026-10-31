@@ -1,4 +1,4 @@
-# ruff: noqa: S608  (table names come from the fixed KINDS tuple, never from a request)
+# ruff: noqa: S608, E501  (table names come from the fixed KINDS tuple, never from a request)
 """Three state-store designs for the service, one interface.
 
 The messages themselves are always the Parquet files in the store root (the existing feature code
@@ -174,13 +174,16 @@ class DuckStore(StateStore):
         self.con.close()
 
 
+_SERVICE_CACHE: dict = {}
+
+
 class SqliteStore(StateStore):
     name = "sqlite"
 
     def __init__(self, path: Path, readonly: bool = False, keep_open: bool = False):
         """`readonly` opens an existing ledger for the API (no write, no pragma, so a worker never
         takes the writer's lock); `keep_open` makes close() a no-op (one connection per thread)."""
-        self.keep_open, self.readonly = keep_open, readonly
+        self.keep_open, self.readonly, self.path = keep_open, readonly, path
         if readonly:
             self.con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, isolation_level=None)
             self.con.execute("PRAGMA query_only=1")
@@ -321,6 +324,86 @@ class SqliteStore(StateStore):
         )
         last = last.sort_values("snap_time").groupby("in_rid").tail(1)
         return head.merge(last[["in_rid", "p_final", "stale"]], on="in_rid", how="left")
+
+    # ---- services: who runs which train, derived from rows already in the ledger -------------
+    def service_table(self, key: str) -> pd.DataFrame:
+        """One row per (service, origin, destination) the ledger knows, cached per ledger clock.
+        Times and operator come only from ledger columns (arrival.pt_arr, pair.plan_dep_out,
+        pair.plan_arr_in, pair.in_toc, pair.out_toc); a value the ledger never saw is None."""
+        ck = (str(self.path), key)
+        if ck not in _SERVICE_CACHE:
+            _SERVICE_CACHE.clear()
+            _SERVICE_CACHE[ck] = self._derive_services()
+        return _SERVICE_CACHE[ck]
+
+    def _derive_services(self) -> pd.DataFrame:
+        cols = ["rid", "toc", "origin", "dest", "sched_dep", "sched_arr", "has_risk"]
+        has_a, has_p = self._has("arrival"), self._has("pair")
+        arr = (
+            self._q("select rid, route, max(pt_arr) as sched_arr from arrival group by rid, route")
+            if has_a
+            else pd.DataFrame(columns=["rid", "route", "sched_arr"])
+        )
+        dep = (
+            self._q(
+                "select out_rid as rid, hub, min(plan_dep_out) as sched_dep, max(out_toc) as toc from pair group by out_rid, hub"
+            )
+            if has_p
+            else pd.DataFrame(columns=["rid", "hub", "sched_dep", "toc"])
+        )
+        inn = (
+            self._q(
+                "select in_rid as rid, hub, min(plan_arr_in) as sched_arr, max(in_toc) as toc from pair group by in_rid, hub"
+            )
+            if has_p
+            else pd.DataFrame(columns=["rid", "hub", "sched_arr", "toc"])
+        )
+        toc = (
+            pd.concat([dep[["rid", "toc"]], inn[["rid", "toc"]]])
+            .dropna()
+            .drop_duplicates("rid")
+            .set_index("rid")["toc"]
+            .to_dict()
+        )
+        risk_rids = set(arr["rid"])
+        rows = []
+        dep_at = {(r.rid, r.hub): r.sched_dep for r in dep.itertuples()}
+        seen_dep, seen_arr = set(), set()
+        for r in arr.itertuples():
+            o, d = r.route.split("-")[0].upper(), r.route.split("-")[1].upper()
+            rows.append((r.rid, toc.get(r.rid), o, d, dep_at.get((r.rid, o)), r.sched_arr, True))
+            seen_dep.add((r.rid, o))
+            seen_arr.add((r.rid, d))
+        for (
+            r
+        ) in dep.itertuples():  # departures from a hub whose destination the ledger does not know
+            if (r.rid, r.hub) not in seen_dep:
+                rows.append((r.rid, r.toc, r.hub, None, r.sched_dep, None, r.rid in risk_rids))
+        for r in inn.itertuples():  # arrivals at a hub whose origin the ledger does not know
+            if (r.rid, r.hub) not in seen_arr:
+                rows.append((r.rid, r.toc, None, r.hub, None, r.sched_arr, r.rid in risk_rids))
+        return pd.DataFrame(rows, columns=cols)
+
+    def service_toc(self, rid: str, key: str) -> str | None:
+        t = self.service_table(key)
+        hit = t.loc[t["rid"] == rid, "toc"].dropna()
+        return str(hit.iloc[0]) if len(hit) else None
+
+    def services(self, key: str, origin: str | None, dest: str | None, near: str, window_min: int,
+                 by: str, limit: int) -> pd.DataFrame:  # fmt: skip
+        t = self.service_table(key)
+        col = "sched_dep" if by == "dep" else "sched_arr"
+        if origin:
+            t = t[t["origin"] == origin]
+        if dest:
+            t = t[t["dest"] == dest]
+        t = t[t[col].notna()].copy()
+        if t.empty:
+            return t
+        gap = (pd.to_datetime(t[col]) - pd.Timestamp(near)).abs() / pd.Timedelta(minutes=1)
+        t = t.assign(_gap=gap)
+        t = t[t["_gap"] <= window_min].sort_values(["_gap", "rid"]).head(limit)
+        return t.drop(columns="_gap")
 
     def close(self):
         if not self.keep_open:

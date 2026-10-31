@@ -53,6 +53,7 @@ RISK_SNAP = {
     "fallback_weight": ("freshness_guard", "fallback_w"),
     "stale": ("freshness_guard", "stale"),
     "stale_reason": ("freshness_guard", "stale_reason"),
+    "sched_arr": ("timetable", "arrival.pt_arr: scheduled arrival at the route destination"),
 }
 CONN_SNAP = {
     "horizon_min": ("snapshot_grid_pair", "minutes before the outbound scheduled departure"),
@@ -63,6 +64,13 @@ CONN_SNAP = {
     "slack_min": ("timetable_and_mct", "planned gap minus mct_min"),
     "mct_min": ("mct", "minutes from the MCT table for this station and operator pair"),
     "inbound_arrived": ("message_data", "inbound arrival message seen before scored_at"),
+    "sched_arr_in": ("timetable", "pair.plan_arr_in: scheduled arrival of the inbound at the hub"),
+    "sched_dep_out": (
+        "timetable",
+        "pair.plan_dep_out: scheduled departure of the outbound from the hub",
+    ),
+    "in_toc": ("timetable", "pair.in_toc: operator code of the inbound"),
+    "out_toc": ("timetable", "pair.out_toc: operator code of the outbound"),
     "stale": ("freshness_guard", "stale"),
     "stale_reason": ("freshness_guard", "stale_reason"),
 }
@@ -73,6 +81,23 @@ INBOUND_ROW = {
     "latest_p_miss": ("pmiss_model", "p_final of the latest snapshot"),
     "stale": ("freshness_guard", "stale"),
 }
+SERVICE_ROW = {
+    "rid": ("ledger", "arrival.rid or pair.in_rid or pair.out_rid"),
+    "toc": (
+        "timetable",
+        "pair.out_toc or pair.in_toc; null when the service is in no scored connection",
+    ),
+    "origin": ("timetable", "first part of arrival.route, or pair.hub for a departure from a hub"),
+    "dest": ("timetable", "second part of arrival.route, or pair.hub for an arrival at a hub"),
+    "sched_dep": (
+        "timetable",
+        "pair.plan_dep_out at the origin; null when no scored connection departs from it",
+    ),
+    "sched_arr": ("timetable", "arrival.pt_arr at the destination, or pair.plan_arr_in at a hub"),
+    "has_risk": ("ledger", "the service has rows in the arrival table, so /risk answers"),
+}
+SERVICE_QUERY = {k: ("request", "echo of the request") for k in
+                 ("origin", "dest", "near", "by", "window_min", "limit")}  # fmt: skip
 
 
 def _expand(prefix: str, spec: dict) -> dict:
@@ -85,7 +110,7 @@ def fields_for(endpoint: str) -> dict:
     if endpoint == "health":
         return dict(HEALTH)
     if endpoint == "risk":
-        out = {"rid": ("request", "echo"), **base}
+        out = {"rid": ("request", "echo"), "toc": SERVICE_ROW["toc"], **base}
         out.update(_expand("snapshots[]", RISK_SNAP))
         out.update(_expand("latest", RISK_SNAP))
         return out
@@ -93,6 +118,11 @@ def fields_for(endpoint: str) -> dict:
         out = {"in_rid": ("request", "echo"), "out_rid": ("request", "echo"), **base}
         out.update(_expand("snapshots[]", CONN_SNAP))
         out.update(_expand("latest", CONN_SNAP))
+        return out
+    if endpoint == "services":
+        out = dict(base)
+        out.update(_expand("query", SERVICE_QUERY))
+        out.update(_expand("services[]", SERVICE_ROW))
         return out
     if endpoint == "inbound":
         out = {"hub": ("request", "echo"), **base}

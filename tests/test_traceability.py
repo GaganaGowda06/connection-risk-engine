@@ -22,6 +22,8 @@ SAMPLE = Path("data/sample/state_oot/state.sqlite")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}")
 MONEY = re.compile(r"fare|price|payout|repay|compensation|refund|pound", re.I)
 RID, OUT = "202610176700683", "202610176742156"
+N_FIELDS = 55
+SVC_Q = {"origin": "BHM", "dest": "EUS", "near": "2026-10-17T19:55", "by": "arr", "window_min": 60}
 
 
 def _client(tmp_path, monkeypatch, mct_table=None, edit=None):
@@ -82,6 +84,7 @@ def _responses(client):
     out["connection"] = client.post("/connection", json={"in_rid": RID, "out_rid": OUT}).json()
     hub, at = _sample_inbound()
     out["inbound"] = client.get("/inbound", params={"hub": hub, "at": at}).json()
+    out["services"] = client.get("/services", params=SVC_Q).json()
     return out
 
 
@@ -117,7 +120,7 @@ def test_every_numeric_field_has_a_provenance_entry(client):
             key = entry.split(":")[0]
             assert key in r["provenance"]["sources"], f"{name}: {path} names unknown source {key}"
     assert seen > 100  # the inbound answer was not empty
-    assert len(distinct) == 41, "README and reports/stage7_audit.md say 41 fields; update both"
+    assert len(distinct) == N_FIELDS, f"README and reports/stage7_audit.md say {N_FIELDS} fields"
 
 
 def test_responses_carry_run_ids_freshness_and_mct_source(client):
@@ -183,6 +186,7 @@ def test_a_run_id_that_does_not_match_the_loaded_model_is_refused(tmp_path, monk
         c.post("/risk", json={"rid": _sample_rid()}),
         c.post("/connection", json={"in_rid": RID, "out_rid": OUT}),
         c.get("/inbound", params={"hub": "BHM"}),
+        c.get("/services", params=SVC_Q),
     ):
         assert resp.status_code == 503 and "pmiss_model" in resp.json()["detail"]
     h = c.get("/health").json()
@@ -209,3 +213,62 @@ def test_engine_start_fails_without_the_mct_table(tmp_path):
 
     with pytest.raises(mct.MctError, match="no MCT value is assumed"):
         mct.load_mct_table(tmp_path / "missing.csv")
+
+
+def test_services_finds_a_train_from_origin_destination_and_time(client):
+    r = client.get("/services", params=SVC_Q).json()
+    rows = r["services"]
+    assert rows and all(x["origin"] == "BHM" and x["dest"] == "EUS" for x in rows)
+    gaps = [
+        abs(
+            (
+                __import__("pandas").Timestamp(x["sched_arr"])
+                - __import__("pandas").Timestamp("2026-10-17 19:55")
+            ).total_seconds()
+        )
+        for x in rows
+    ]
+    assert gaps == sorted(gaps), "nearest first"
+    top = rows[0]
+    assert top["rid"] and top["has_risk"] is True and top["sched_arr"].startswith("2026-10-17")
+    assert r["query"]["window_min"] == 60 and r["freshness"]["data_as_of"]
+    # the rid it returns is one /risk answers for, with the operator and scheduled arrival in the answer
+    k = client.post("/risk", json={"rid": top["rid"]}).json()
+    assert k["latest"]["sched_arr"] == top["sched_arr"]
+
+
+def test_services_by_departure_and_unknowns_are_null_not_guessed(client):
+    r = client.get(
+        "/services", params={"origin": "BHM", "near": "2026-10-17T18:15", "window_min": 30}
+    ).json()
+    assert r["services"]
+    for x in r["services"]:
+        assert x["sched_dep"] and x["origin"] == "BHM"
+    nulls = [x for x in r["services"] if x["dest"] is None]
+    assert nulls and all(
+        x["sched_arr"] is None for x in nulls
+    )  # a hub departure with no known destination
+
+
+def test_services_rejects_bad_requests_and_empty_results_are_empty(client):
+    assert client.get("/services", params={"near": "2026-10-17T18:15"}).status_code == 422
+    assert client.get("/services", params={"origin": "BHM"}).status_code == 422
+    assert (
+        client.get("/services", params={"origin": "BHMX", "near": "2026-10-17T18:15"}).status_code
+        == 422
+    )
+    assert (
+        client.get(
+            "/services", params={"origin": "BHM", "near": "2026-10-17T18:15", "by": "x"}
+        ).status_code
+        == 422
+    )
+    e = client.get("/services", params={"origin": "ZZZ", "near": "2026-10-17T18:15"}).json()
+    assert e["services"] == [] and e["freshness"]["data_as_of"]
+
+
+def test_risk_and_connection_carry_operator_and_scheduled_times(client):
+    k = client.post("/risk", json={"rid": _sample_rid()}).json()
+    assert "toc" in k and k["latest"]["sched_arr"]
+    c = client.post("/connection", json={"in_rid": RID, "out_rid": OUT}).json()["latest"]
+    assert c["in_toc"] and c["out_toc"] and c["sched_arr_in"] and c["sched_dep_out"]

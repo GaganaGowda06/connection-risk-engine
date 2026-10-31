@@ -14,10 +14,14 @@ Numeric and time fields, counted by distinct path (`snapshots[]` and `latest` co
 | endpoint | fields | source stated in the response, before | after |
 |---|---|---|---|
 | /health | 5 | 0 | 5 |
-| /risk | 15 | 0 | 15 |
-| /connection | 15 | 0 | 15 |
+| /risk | 17 | 0 | 17 |
+| /connection | 19 | 0 | 19 |
 | /inbound | 6 | 0 | 6 |
-| total | 41 | 0 | 41 |
+| /services | 8 | not in this audit | 8 |
+| total | 55 | 0 | 55 |
+
+The /services endpoint and the `toc` and `sched_arr` fields were added after this audit (2026-10-31); the
+before column for them is not measured. The Stage 7 count was 41.
 
 Before this change the responses named the run ids only. Reading the code traced 37 of the 41
 fields to a model output, the message clock or the guard; 4 had no recorded source: `mct_min` and
